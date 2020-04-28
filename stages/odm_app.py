@@ -17,6 +17,7 @@ from odm_orthophoto import ODMOrthoPhotoStage
 from odm_dem import ODMDEMStage
 from odm_filterpoints import ODMFilterPoints
 from splitmerge import ODMSplitStage, ODMMergeStage
+from odm_micasense import ODMMicasenseStage
 
 
 class ODMApp:
@@ -26,8 +27,11 @@ class ODMApp:
         """
         if args.debug:
             log.logger.show_debug = True
-        
-        dataset = ODMLoadDatasetStage('dataset', args, progress=5.0,
+
+        self.args = args
+
+        mikasense = ODMMicasenseStage('mikasense', args, progress=5)
+        dataset = ODMLoadDatasetStage('dataset', args, progress=15.0,
                                           verbose=args.verbose)
         split = ODMSplitStage('split', args, progress=75.0)
         merge = ODMMergeStage('merge', args, progress=100.0)
@@ -60,7 +64,9 @@ class ODMApp:
         orthophoto = ODMOrthoPhotoStage('odm_orthophoto', args, progress=100.0)
 
         # Normal pipeline
-        self.first_stage = dataset
+        self.first_stage = mikasense
+
+        mikasense.connect(dataset)
 
         dataset.connect(split) \
                 .connect(merge) \
@@ -71,14 +77,14 @@ class ODMApp:
         else:
             opensfm.connect(mve) \
                     .connect(filterpoints)
-        
+
         filterpoints \
             .connect(meshing) \
             .connect(texturing) \
             .connect(georeferencing) \
             .connect(dem) \
             .connect(orthophoto)
-                
+
         # # SLAM pipeline
         # # TODO: this is broken and needs work
         # log.ODM_WARNING("SLAM module is currently broken. We could use some help fixing this. If you know Python, get in touch at https://community.opendronemap.org.")
@@ -89,4 +95,16 @@ class ODMApp:
         #     .connect(texturing)
 
     def execute(self):
-        self.first_stage.run()
+        outputs = {}
+
+        # Load tree
+        tree = types.ODM_Tree(self.args.project_path, self.args.gcp)
+        outputs['tree'] = tree
+
+        if self.args.time and io.file_exists(tree.benchmarking):
+            # Delete the previously made file
+            os.remove(tree.benchmarking)
+            with open(tree.benchmarking, 'a') as b:
+                b.write('ODM Benchmarking file created %s\nNumber of Cores: %s\n\n' % (system.now(), context.num_cores))
+
+        self.first_stage.run(outputs)

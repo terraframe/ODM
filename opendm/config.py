@@ -40,7 +40,7 @@ def url_string(string):
         r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
         r'(?::\d+)?' # optional port
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-        
+
     if re.match(regex, string) is None:
         raise argparse.ArgumentTypeError("%s is not a valid URL. The URL must be in the format: http(s)://host[:port]/[?token=]" % string)
     return string
@@ -55,6 +55,13 @@ parser = SettingsParser(description='OpenDroneMap',
                         yaml_file=open(context.settings_path))
 
 def config():
+    parser.add_argument('--multispectral',
+            action='store_true',
+            default=False,
+            help='If set to true, ODM will assume the imagery is multispectral and Micasense will be invoked '
+            'Default: '
+            '%(default)s')
+
     parser.add_argument('--project-path',
                         metavar='<path>',
                         help='Path to the project folder')
@@ -149,7 +156,7 @@ def config():
                              'Can be specified either as path to a cameras.json file or as a '
                              'JSON string representing the contents of a '
                              'cameras.json file. Default: %(default)s')
-    
+
     parser.add_argument('--camera-lens',
             metavar='<string>',
             default='auto',
@@ -302,7 +309,7 @@ def config():
                         action='store_true',
                         default=False,
                         help='Export the georeferenced point cloud in CSV format. Default:  %(default)s')
-    
+
     parser.add_argument('--pc-las',
                 action='store_true',
                 default=False,
@@ -336,7 +343,7 @@ def config():
         help='Simple Morphological Filter slope parameter (rise over run). '
                 '\nDefault: '
                 '%(default)s')
-    
+
     parser.add_argument('--smrf-threshold',
         metavar='<positive float>',
         type=float,
@@ -344,7 +351,7 @@ def config():
         help='Simple Morphological Filter elevation threshold parameter (meters). '
                 '\nDefault: '
                 '%(default)s')
-    
+
     parser.add_argument('--smrf-window',
         metavar='<positive float>',
         type=float,
@@ -466,7 +473,7 @@ def config():
                         help='Decimate the points before generating the DEM. 1 is no decimation (full quality). '
                              '100 decimates ~99%% of the points. Useful for speeding up '
                              'generation.\nDefault=%(default)s')
-    
+
     parser.add_argument('--dem-euclidean-map',
             action='store_true',
             default=False,
@@ -498,7 +505,7 @@ def config():
                         help='Set the compression to use. Note that this could '
                              'break gdal_translate if you don\'t know what you '
                              'are doing. Options: %(choices)s.\nDefault: %(default)s')
-    
+
     parser.add_argument('--orthophoto-cutline',
             action='store_true',
             default=False,
@@ -524,7 +531,7 @@ def config():
                         default=False,
                         help='Generates a benchmark file with runtime info\n'
                              'Default: %(default)s')
-    
+
     parser.add_argument('--debug',
                         action='store_true',
                         default=False,

@@ -12,7 +12,7 @@ from opendm import progress
 def save_images_database(photos, database_file):
     with open(database_file, 'w') as f:
         f.write(json.dumps(map(lambda p: p.__dict__, photos)))
-    
+
     log.ODM_INFO("Wrote images database: %s" % database_file)
 
 def load_images_database(database_file):
@@ -38,16 +38,8 @@ def load_images_database(database_file):
 
 class ODMLoadDatasetStage(types.ODM_Stage):
     def process(self, args, outputs):
-        # Load tree
-        tree = types.ODM_Tree(args.project_path, args.gcp)
-        outputs['tree'] = tree
+        tree = outputs['tree']
 
-        if args.time and io.file_exists(tree.benchmarking):
-            # Delete the previously made file
-            os.remove(tree.benchmarking)
-            with open(tree.benchmarking, 'a') as b:
-                b.write('ODM Benchmarking file created %s\nNumber of Cores: %s\n\n' % (system.now(), context.num_cores))
-    
         # check if the extension is supported
         def supported_extension(file_name):
             (pathfn, ext) = os.path.splitext(file_name)
@@ -102,15 +94,15 @@ class ODMLoadDatasetStage(types.ODM_Stage):
 
         # Create reconstruction object
         reconstruction = types.ODM_Reconstruction(photos)
-        
+
         if tree.odm_georeferencing_gcp and not args.use_exif:
             reconstruction.georeference_with_gcp(tree.odm_georeferencing_gcp,
                                                  tree.odm_georeferencing_coords,
                                                  tree.odm_georeferencing_gcp_utm,
                                                  rerun=self.rerun())
         else:
-            reconstruction.georeference_with_gps(tree.dataset_raw, 
-                                                 tree.odm_georeferencing_coords, 
+            reconstruction.georeference_with_gps(tree.dataset_raw,
+                                                 tree.odm_georeferencing_coords,
                                                  rerun=self.rerun())
 
         reconstruction.save_proj_srs(io.join_paths(tree.odm_georeferencing, tree.odm_georeferencing_proj))
