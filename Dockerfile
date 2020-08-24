@@ -80,7 +80,8 @@ COPY VERSION /code/VERSION
 COPY requirements.txt /code/requirements.txt
 
 RUN pip install -r requirements.txt
-RUN pip install --upgrade cryptography && python -m easy_install --upgrade pyOpenSSL
+RUN pip install cryptography==2.2.2
+RUN python -m easy_install --upgrade pyOpenSSL
 
 ENV PYTHONPATH="$PYTHONPATH:/code/SuperBuild/install/lib/python2.7/dist-packages"
 ENV PYTHONPATH="$PYTHONPATH:/code/SuperBuild/src/opensfm"
