@@ -73,6 +73,13 @@ def config(argv=None, parser=None):
                             usage='%(prog)s [options] <project name>',
                             yaml_file=open(context.settings_path))
     
+    parser.add_argument('--multispectral',
+            action='store_true',
+            default=False,
+            help='If set to true, ODM will assume the imagery is multispectral and Micasense will be invoked '
+            'Default: '
+            '%(default)s')
+    
     parser.add_argument('--project-path',
                         metavar='<path>',
                         action=StoreValue,
