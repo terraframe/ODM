@@ -40,7 +40,15 @@ def load_images_database(database_file):
 
 class ODMLoadDatasetStage(types.ODM_Stage):
     def process(self, args, outputs):
-        tree = outputs['tree']
+        outputs['start_time'] = system.now_raw()
+        tree = types.ODM_Tree(args.project_path, args.gcp, args.geo)
+        outputs['tree'] = tree
+
+        if args.time and io.file_exists(tree.benchmarking):
+            # Delete the previously made file
+            os.remove(tree.benchmarking)
+            with open(tree.benchmarking, 'a') as b:
+                b.write('ODM Benchmarking file created %s\nNumber of Cores: %s\n\n' % (system.now(), context.num_cores))
     
         # check if the image filename is supported
         def valid_image_filename(filename):

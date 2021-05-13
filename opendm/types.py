@@ -319,10 +319,10 @@ class ODM_Stage:
         self.process(self.args, outputs)
 
         # The tree variable should always be populated at this point
-        if outputs.get('tree') is None:
-            raise Exception("Assert violation: tree variable is missing from outputs dictionary.")
+        #if outputs.get('tree') is None:
+         #   raise Exception("Assert violation: tree variable is missing from outputs dictionary.")
 
-        if self.args.time:
+        if self.args.time and outputs.get('tree') is not None:
             system.benchmark(start_time, outputs['tree'].benchmarking, self.name)
 
         log.ODM_INFO('Finished %s stage' % self.name)
