@@ -84,5 +84,19 @@ class ODMApp:
             .connect(report)
                 
     def execute(self):
-        self.first_stage.run()
+        outputs = {}
+        
+        outputs['start_time'] = system.now_raw()
+
+        # Load tree
+        tree = types.ODM_Tree(self.args.project_path, self.args.gcp, self.args.geo)
+        outputs['tree'] = tree
+
+        if self.args.time and io.file_exists(tree.benchmarking):
+            # Delete the previously made file
+            os.remove(tree.benchmarking)
+            with open(tree.benchmarking, 'a') as b:
+                b.write('ODM Benchmarking file created %s\nNumber of Cores: %s\n\n' % (system.now(), context.num_cores))
+    
+        self.first_stage.run(outputs)
         
