@@ -227,7 +227,7 @@ Experimental flags need to be enabled in Docker to use the ```--squash``` flag. 
 
 After this, you must restart docker.
 
-You can now make changes to the ODM source. When you are ready to test the changes you can simply invoke:
+## Developers
 
 Help improve our software! We welcome contributions from everyone, whether to add new features, improve speed, fix existing bugs or add support for more cameras. Check our [code of conduct](https://github.com/OpenDroneMap/documents/blob/master/CONDUCT.md), the [contributing guidelines](https://github.com/OpenDroneMap/documents/blob/master/CONTRIBUTING.md) and [how decisions are made](https://github.com/OpenDroneMap/documents/blob/master/GOVERNANCE.md#how-decisions-are-made).
 
