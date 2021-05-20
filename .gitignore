@@ -25,3 +25,5 @@ ceres-solver.tar.gz
 opencv.zip
 settings.yaml
 .setupdevenv
+__pycache__
+*.snap

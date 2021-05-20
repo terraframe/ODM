@@ -10,6 +10,7 @@ from opendm import gsd
 from opendm.dem import commands, utils
 from opendm.cropper import Cropper
 from opendm import pseudogeo
+from opendm.tiles.tiler import generate_dem_tiles
 
 class ODMDEMStage(types.ODM_Stage):
     def process(self, args, outputs):
@@ -22,19 +23,9 @@ class ODMDEMStage(types.ODM_Stage):
         pseudo_georeference = False
         
         if not reconstruction.is_georeferenced():
-            # Special case to clear previous run point cloud 
-            # (NodeODM will generate a fake georeferenced laz during postprocessing
-            # with non-georeferenced datasets). odm_georeferencing_model_laz should
-            # not be here! Perhaps we should improve this.
-            if io.file_exists(tree.odm_georeferencing_model_laz) and self.rerun():
-                os.remove(tree.odm_georeferencing_model_laz)
-
             log.ODM_WARNING("Not georeferenced, using ungeoreferenced point cloud...")
-            dem_input = tree.path("odm_filterpoints", "point_cloud.ply")
-            pc_model_found = io.file_exists(dem_input)
             ignore_resolution = True
             pseudo_georeference = True
-
 
         resolution = gsd.cap_resolution(args.dem_resolution, tree.opensfm_reconstruction, 
                         gsd_error_estimate=-3, 
@@ -101,7 +92,7 @@ class ODMDEMStage(types.ODM_Stage):
                             dem_input,
                             product,
                             output_type='idw' if product == 'dtm' else 'max',
-                            radiuses=map(str, radius_steps),
+                            radiuses=list(map(str, radius_steps)),
                             gapfill=args.dem_gapfill_steps > 0,
                             outdir=odm_dem_root,
                             resolution=resolution / 100.0,
@@ -132,6 +123,12 @@ class ODMDEMStage(types.ODM_Stage):
                     if pseudo_georeference:
                         # 0.1 is arbitrary
                         pseudogeo.add_pseudo_georeferencing(dem_geotiff_path, 0.1)
+                    
+                    if pseudo_georeference:
+                        pseudogeo.add_pseudo_georeferencing(dem_geotiff_path)
+
+                    if args.tiles:
+                        generate_dem_tiles(dem_geotiff_path, tree.path("%s_tiles" % product), args.max_concurrency)
                     
                     progress += 30
                     self.update_progress(progress)

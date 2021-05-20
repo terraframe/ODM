@@ -29,7 +29,7 @@ ExternalProject_Add(${_proj_name}
   STAMP_DIR         ${_SB_BINARY_DIR}/stamp
   #--Download step--------------
   DOWNLOAD_DIR      ${SB_DOWNLOAD_DIR}
-  URL               https://github.com/opencv/opencv/archive/3.4.6.zip
+  URL               https://github.com/opencv/opencv/archive/4.5.0.zip
   #--Update/Patch step----------
   UPDATE_COMMAND    ""
   #--Configure step-------------
@@ -68,8 +68,8 @@ ExternalProject_Add(${_proj_name}
     -DBUILD_opencv_java=OFF
     -DBUILD_opencv_ocl=OFF
     -DBUILD_opencv_ts=OFF
-    -DOPENCV_EXTRA_MODULES_PATH=${SB_SOURCE_DIR}/opencv_contrib/modules
     -DBUILD_opencv_xfeatures2d=ON
+    -DOPENCV_ALLOCATOR_STATS_COUNTER_TYPE=int64_t
     -DCMAKE_BUILD_TYPE:STRING=Release
     -DCMAKE_INSTALL_PREFIX:PATH=${SB_INSTALL_DIR}
   #--Build step-----------------

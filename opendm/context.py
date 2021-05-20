@@ -1,6 +1,5 @@
 import os
 import sys
-from opendm import io
 import multiprocessing
 
 # Define some needed locations
@@ -12,9 +11,15 @@ superbuild_bin_path = os.path.join(superbuild_path, 'install', 'bin')
 tests_path = os.path.join(root_path, 'tests')
 tests_data_path = os.path.join(root_path, 'tests/test_data')
 
-# add opencv to python path
-pyopencv_path = os.path.join(superbuild_path, 'install/lib/python2.7/dist-packages')
-sys.path.append(pyopencv_path)
+# add opencv,opensfm to python path
+python_packages_paths = [os.path.join(superbuild_path, p) for p in [
+    'install/lib/python3.8/dist-packages',
+    'install/lib/python3/dist-packages',
+    'src/opensfm'
+]]
+for p in python_packages_paths:
+    sys.path.append(p)
+
 
 # define opensfm path
 opensfm_path = os.path.join(superbuild_path, "src/opensfm")
@@ -22,18 +27,15 @@ opensfm_path = os.path.join(superbuild_path, "src/opensfm")
 # define orb_slam2 path
 orb_slam2_path = os.path.join(superbuild_path, "src/orb_slam2")
 
-# define mve join_paths
-makescene_path = os.path.join(superbuild_path, 'src', 'elibs', 'mve', 'apps', 'makescene', 'makescene') #TODO: don't install in source
-dmrecon_path = os.path.join(superbuild_path, 'src', 'elibs', 'mve', 'apps', 'dmrecon', 'dmrecon')
-scene2pset_path = os.path.join(superbuild_path, 'src', 'elibs', 'mve', 'apps', 'scene2pset', 'scene2pset')
-meshclean_path = os.path.join(superbuild_path, 'src', 'elibs', 'mve', 'apps', 'meshclean', 'meshclean')
-
 poisson_recon_path = os.path.join(superbuild_path, 'src', 'PoissonRecon', 'Bin', 'Linux', 'PoissonRecon')
 dem2mesh_path = os.path.join(superbuild_path, 'src', 'dem2mesh', 'dem2mesh')
 dem2points_path = os.path.join(superbuild_path, 'src', 'dem2points', 'dem2points')
 
 # define mvstex path
 mvstex_path = os.path.join(superbuild_path, "install/bin/texrecon")
+
+# openmvs paths
+omvs_densify_path = os.path.join(superbuild_path, "install/bin/OpenMVS/DensifyPointCloud")
 
 # define txt2las path
 txt2las_path = os.path.join(superbuild_path, 'src/las-tools/bin')
@@ -46,7 +48,12 @@ odm_modules_src_path = os.path.join(root_path, "modules")
 settings_path = os.path.join(root_path, 'settings.yaml')
 
 # Define supported image extensions
-supported_extensions = {'.jpg','.jpeg','.png', '.tif', '.tiff'}
+supported_extensions = {'.jpg','.jpeg','.png', '.tif', '.tiff', '.bmp'}
 
 # Define the number of cores
 num_cores = multiprocessing.cpu_count()
+
+
+# Print python paths if invoked as a script
+if __name__ == "__main__":
+    print("export PYTHONPATH=" + ":".join(python_packages_paths))

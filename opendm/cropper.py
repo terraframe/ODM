@@ -1,6 +1,7 @@
 from opendm import context
 from opendm.system import run
 from opendm import log
+from opendm.point_cloud import export_summary_json
 from osgeo import ogr
 import json, os
 from opendm.concurrency import get_max_memory
@@ -60,7 +61,7 @@ class Cropper:
                 os.remove(original_geotiff)
 
         except Exception as e:
-            log.ODM_WARNING('Something went wrong while cropping: {}'.format(e.message))
+            log.ODM_WARNING('Something went wrong while cropping: {}'.format(e))
             
             # Revert rename
             os.rename(original_geotiff, geotiff_path)
@@ -189,8 +190,14 @@ class Cropper:
         BUFFER_SMOOTH_DISTANCE = 3
 
         if buffer_distance > 0:
-            convexhull = convexhull.Buffer(-(buffer_distance + BUFFER_SMOOTH_DISTANCE))
-            convexhull = convexhull.Buffer(BUFFER_SMOOTH_DISTANCE)
+            # For small areas, check that buffering doesn't obliterate 
+            # our hull
+            tmp = convexhull.Buffer(-(buffer_distance + BUFFER_SMOOTH_DISTANCE))
+            tmp = tmp.Buffer(BUFFER_SMOOTH_DISTANCE)
+            if tmp.Area() > 0:
+                convexhull = tmp
+            else:
+                log.ODM_WARNING("Very small crop area detected, we will not smooth it.")
 
         # Save to a new file
         bounds_geojson_path = self.path('bounds.geojson')
@@ -230,7 +237,7 @@ class Cropper:
         bounds_geojson_path = self.create_bounds_geojson(pointcloud_path, buffer_distance, decimation_step)
 
         summary_file_path = os.path.join(self.storage_dir, '{}.summary.json'.format(self.files_prefix))
-        run('pdal info --summary {0} > {1}'.format(pointcloud_path, summary_file_path))
+        export_summary_json(pointcloud_path, summary_file_path)
         
         pc_proj4 = None
         with open(summary_file_path, 'r') as f:

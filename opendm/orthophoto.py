@@ -7,10 +7,13 @@ import math
 import numpy as np
 import rasterio
 import fiona
-from scipy import ndimage
+from edt import edt
 from rasterio.transform import Affine, rowcol
 from rasterio.mask import mask
 from opendm import io
+from opendm.tiles.tiler import generate_orthophoto_tiles
+from osgeo import gdal
+
 
 def get_orthophoto_vars(args):
     return {
@@ -33,16 +36,26 @@ def build_overviews(orthophoto_file):
                 '--config COMPRESS_OVERVIEW JPEG '
                 '{orthophoto} 2 4 8 16'.format(**kwargs))
 
-def generate_png(orthophoto_file):
-    log.ODM_INFO("Generating PNG")
-    base, ext = os.path.splitext(orthophoto_file)
-    orthophoto_png = base + '.png'
+def generate_png(orthophoto_file, output_file=None, outsize=None):
+    if output_file is None:
+        base, ext = os.path.splitext(orthophoto_file)
+        output_file = base + '.png'
+    
+    # See if we need to select top three bands
+    bandparam = ""
+    gtif = gdal.Open(orthophoto_file)
+    if gtif.RasterCount > 4:
+        bandparam = "-b 1 -b 2 -b 3 -a_nodata 0"
 
-    system.run('gdal_translate -of png "%s" "%s" '
-               '--config GDAL_CACHEMAX %s%% ' % (orthophoto_file, orthophoto_png, get_max_memory()))
+    osparam = ""
+    if outsize is not None:
+        osparam = "-outsize %s 0" % outsize
+
+    system.run('gdal_translate -of png "%s" "%s" %s %s '
+               '--config GDAL_CACHEMAX %s%% ' % (orthophoto_file, output_file, osparam, bandparam, get_max_memory()))
 
 
-def post_orthophoto_steps(args, bounds_file_path, orthophoto_file):
+def post_orthophoto_steps(args, bounds_file_path, orthophoto_file, orthophoto_tiles_dir):
     if args.crop > 0:
         Cropper.crop(bounds_file_path, orthophoto_file, get_orthophoto_vars(args), keep_original=not args.optimize_disk_space, warp_options=['-dstalpha'])
 
@@ -51,6 +64,9 @@ def post_orthophoto_steps(args, bounds_file_path, orthophoto_file):
 
     if args.orthophoto_png:
         generate_png(orthophoto_file)
+
+    if args.tiles:
+        generate_orthophoto_tiles(orthophoto_file, orthophoto_tiles_dir, args.max_concurrency)
 
 
 def compute_mask_raster(input_raster, vector_mask, output_raster, blend_distance=20, only_max_coords_feature=False):
@@ -87,7 +103,7 @@ def compute_mask_raster(input_raster, vector_mask, output_raster, blend_distance
                 if out_image.shape[0] >= 4:
                     # alpha_band = rast.dataset_mask()
                     alpha_band = out_image[-1]
-                    dist_t = ndimage.distance_transform_edt(alpha_band)
+                    dist_t = edt(alpha_band, black_border=True, parallel=0)
                     dist_t[dist_t <= blend_distance] /= blend_distance
                     dist_t[dist_t > blend_distance] = 1
                     np.multiply(alpha_band, dist_t, out=alpha_band, casting="unsafe")
@@ -112,7 +128,7 @@ def feather_raster(input_raster, output_raster, blend_distance=20):
         if blend_distance > 0:
             if out_image.shape[0] >= 4:
                 alpha_band = out_image[-1]
-                dist_t = ndimage.distance_transform_edt(alpha_band)
+                dist_t = edt(alpha_band, black_border=True, parallel=0)
                 dist_t[dist_t <= blend_distance] /= blend_distance
                 dist_t[dist_t > blend_distance] = 1
                 np.multiply(alpha_band, dist_t, out=alpha_band, casting="unsafe")

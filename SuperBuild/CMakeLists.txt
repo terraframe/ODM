@@ -101,42 +101,25 @@ SETUP_EXTERNAL_PROJECT(Ceres ${ODM_Ceres_Version} ${ODM_BUILD_Ceres})
 SETUP_EXTERNAL_PROJECT(Hexer 1.4 ON)
 
 # ---------------------------------------------------------------------------------------------
-# Open Geometric Vision (OpenGV)
 # Open Structure from Motion (OpenSfM)
 #
 
-set(custom_libs OpenGV
-				OpenSfM
+set(custom_libs OpenSfM
 				LASzip
                 Zstd
 				PDAL
+                Untwine
                 Entwine
 				MvsTexturing
+                OpenMVS
 )
-
-# Dependencies of the SLAM module
-if(ODM_BUILD_SLAM)
-	list(APPEND custom_libs
-				Pangolin
-				ORB_SLAM2)
-endif()
 
 foreach(lib ${custom_libs})
 	SETUP_EXTERNAL_PROJECT_CUSTOM(${lib})
 endforeach()
 
-## Add mve Build
-
-externalproject_add(mve
-    GIT_REPOSITORY  https://github.com/OpenDroneMap/mve.git
-    GIT_TAG         099
-    UPDATE_COMMAND  ""
-    SOURCE_DIR      ${SB_SOURCE_DIR}/elibs/mve
-    CONFIGURE_COMMAND ""
-    BUILD_IN_SOURCE 1
-    BUILD_COMMAND   make
-    INSTALL_COMMAND ""
-)
+include(ProcessorCount)
+ProcessorCount(nproc)
 
 externalproject_add(poissonrecon
     GIT_REPOSITORY    https://github.com/mkazhdan/PoissonRecon.git
@@ -145,7 +128,7 @@ externalproject_add(poissonrecon
     UPDATE_COMMAND    ""
     CONFIGURE_COMMAND ""
     BUILD_IN_SOURCE 1
-    BUILD_COMMAND     make poissonrecon
+    BUILD_COMMAND     make -j${nproc} poissonrecon
     INSTALL_COMMAND   ""
 )
 
@@ -155,7 +138,6 @@ externalproject_add(dem2mesh
     SOURCE_DIR        ${SB_SOURCE_DIR}/dem2mesh
     UPDATE_COMMAND    ""
     BUILD_IN_SOURCE 1
-    BUILD_COMMAND     make
     INSTALL_COMMAND   ""
 )
 
@@ -165,7 +147,6 @@ externalproject_add(dem2points
     SOURCE_DIR        ${SB_SOURCE_DIR}/dem2points
     UPDATE_COMMAND    ""
     BUILD_IN_SOURCE 1
-    BUILD_COMMAND     make
     INSTALL_COMMAND   ""
 )
 
@@ -178,6 +159,6 @@ externalproject_add(lastools
     CMAKE_GENERATOR   ""
     UPDATE_COMMAND    ""
     BUILD_IN_SOURCE 1
-    BUILD_COMMAND     make -C LASlib -j$(nproc) CXXFLAGS='-std=c++11' && make -C src -j$(nproc) CXXFLAGS='-std=c++11' lasmerge
-    INSTALL_COMMAND   mv ${SB_SOURCE_DIR}/lastools/bin/lasmerge ${SB_INSTALL_DIR}/bin
+    BUILD_COMMAND     make -C LASlib -j${nproc} CXXFLAGS='-std=c++11' && make -C src -j${nproc} CXXFLAGS='-std=c++11' lasmerge
+    INSTALL_COMMAND   install -m755 -D -t ${SB_INSTALL_DIR}/bin ${SB_SOURCE_DIR}/lastools/bin/lasmerge
 )
