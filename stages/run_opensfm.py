@@ -17,6 +17,8 @@ from opendm import thermal
 from opendm import nvm
 from opendm.photo import find_largest_photo
 
+from opensfm.undistort import add_image_format_extension
+
 class ODMOpenSfMStage(types.ODM_Stage):
     def process(self, args, outputs):
         tree = outputs['tree']
@@ -24,14 +26,11 @@ class ODMOpenSfMStage(types.ODM_Stage):
         photos = reconstruction.photos
 
         if not photos:
-            log.ODM_ERROR('Not enough photos in photos array to start OpenSfM')
-            exit(1)
+            raise system.ExitException('Not enough photos in photos array to start OpenSfM')
 
         octx = OSFMContext(tree.opensfm)
-        # TODO REMOVE
-        # octx.setup(args, tree.dataset_raw, reconstruction=reconstruction, rerun=False)
         octx.setup(args, tree.dataset_raw, reconstruction=reconstruction, rerun=self.rerun())
-        octx.extract_metadata(self.rerun())
+        octx.photos_to_metadata(photos, self.rerun())
         self.update_progress(20)
         octx.feature_matching(self.rerun())
         self.update_progress(30)
@@ -41,7 +40,7 @@ class ODMOpenSfMStage(types.ODM_Stage):
 
         def cleanup_disk_space():
             if args.optimize_disk_space:
-                for folder in ["features", "matches", "exif", "reports"]:
+                for folder in ["features", "matches", "reports"]:
                     folder_path = octx.path(folder)
                     if os.path.exists(folder_path):
                         if os.path.islink(folder_path):
@@ -69,14 +68,11 @@ class ODMOpenSfMStage(types.ODM_Stage):
         self.update_progress(75)
 
         # We now switch to a geographic CRS
-        geocoords_flag_file = octx.path("exported_geocoords.txt")
-
-        if reconstruction.is_georeferenced() and (not io.file_exists(geocoords_flag_file) or self.rerun()):
-            octx.run('export_geocoords --reconstruction --proj \'%s\' --offset-x %s --offset-y %s' % 
+        if reconstruction.is_georeferenced() and (not io.file_exists(tree.opensfm_topocentric_reconstruction) or self.rerun()):
+            octx.run('export_geocoords --reconstruction --proj "%s" --offset-x %s --offset-y %s' % 
                 (reconstruction.georef.proj4(), reconstruction.georef.utm_east_offset, reconstruction.georef.utm_north_offset))
-            # Destructive
+            shutil.move(tree.opensfm_reconstruction, tree.opensfm_topocentric_reconstruction)
             shutil.move(tree.opensfm_geocoords_reconstruction, tree.opensfm_reconstruction)
-            octx.touch(geocoords_flag_file)
         else:
             log.ODM_WARNING("Will skip exporting %s" % tree.opensfm_geocoords_reconstruction)
         
@@ -117,7 +113,7 @@ class ODMOpenSfMStage(types.ODM_Stage):
         def radiometric_calibrate(shot_id, image):
             photo = reconstruction.get_photo(shot_id)
             if photo.is_thermal():
-                return thermal.dn_to_temperature(photo, image)
+                return thermal.dn_to_temperature(photo, image, tree.dataset_raw)
             else:
                 return multispectral.dn_to_reflectance(photo, image, use_sun_sensor=args.radiometric_calibration=="camera+sun")
 
@@ -161,6 +157,7 @@ class ODMOpenSfMStage(types.ODM_Stage):
             # We finally restore the original files later
 
             added_shots_file = octx.path('added_shots_done.txt')
+            s2p, p2s = None, None
 
             if not io.file_exists(added_shots_file) or self.rerun():
                 primary_band_name = multispectral.get_primary_band_name(reconstruction.multi_camera, args.primary_band)
@@ -237,12 +234,12 @@ class ODMOpenSfMStage(types.ODM_Stage):
                         
                         # Primary band maps to itself
                         if band['name'] == primary_band_name:
-                            img_map[fname + '.tif'] = fname + '.tif'
+                            img_map[add_image_format_extension(fname, 'tif')] = add_image_format_extension(fname, 'tif')
                         else:
                             band_filename = next((p.filename for p in p2s[fname] if p.band_name == band['name']), None)
 
                             if band_filename is not None:
-                                img_map[fname + '.tif'] = band_filename + '.tif'
+                                img_map[add_image_format_extension(fname, 'tif')] = add_image_format_extension(band_filename, 'tif')
                             else:
                                 log.ODM_WARNING("Cannot find %s band equivalent for %s" % (band, fname))
 

@@ -1,5 +1,6 @@
-from psutil import virtual_memory
+from vmem import virtual_memory
 import os
+import sys
 try:
     import Queue as queue
 except:

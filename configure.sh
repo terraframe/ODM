@@ -3,21 +3,21 @@
 # Ensure the DEBIAN_FRONTEND environment variable is set for apt-get calls
 APT_GET="env DEBIAN_FRONTEND=noninteractive $(command -v apt-get)"
 
-check_version(){
+check_version(){  
   UBUNTU_VERSION=$(lsb_release -r)
   case "$UBUNTU_VERSION" in
-    *"20.04"*)
+    *"20.04"*|*"21.04"*)
       echo "Ubuntu: $UBUNTU_VERSION, good!"
       ;;
     *"18.04"*|*"16.04"*)
-      echo "ODM 2.1 has upgraded to Ubuntu 20.04, but you're on $UBUNTU_VERSION"
+      echo "ODM 2.1 has upgraded to Ubuntu 21.04, but you're on $UBUNTU_VERSION"
       echo "* The last version of ODM that supports Ubuntu 16.04 is v1.0.2."
       echo "* The last version of ODM that supports Ubuntu 18.04 is v2.0.0."
       echo "We recommend you to upgrade, or better yet, use docker."
       exit 1
       ;;
     *)
-      echo "You are not on Ubuntu 20.04 (detected: $UBUNTU_VERSION)"
+      echo "You are not on Ubuntu 21.04 (detected: $UBUNTU_VERSION)"
       echo "It might be possible to run ODM on a newer version of Ubuntu, however, you cannot rely on this script."
       exit 1
       ;;
@@ -54,10 +54,13 @@ ensure_prereqs() {
     echo "Installing tzdata"
     sudo $APT_GET install -y -qq tzdata
 
-    echo "Enabling PPA for Ubuntu GIS"
-    sudo $APT_GET install -y -qq --no-install-recommends software-properties-common
-    sudo add-apt-repository -y ppa:ubuntugis/ubuntugis-unstable
-    sudo $APT_GET update
+    UBUNTU_VERSION=$(lsb_release -r)
+    if [[ "$UBUNTU_VERSION" == *"20.04"* ]]; then
+        echo "Enabling PPA for Ubuntu GIS"
+        sudo $APT_GET install -y -qq --no-install-recommends software-properties-common
+        sudo add-apt-repository -y ppa:ubuntugis/ubuntugis-unstable
+        sudo $APT_GET update
+    fi
 
     echo "Installing Python PIP"
     sudo $APT_GET install -y -qq --no-install-recommends \
@@ -77,7 +80,13 @@ installdepsfromsnapcraft() {
         *) key=build-packages; ;; # shouldn't be needed, but it's here just in case
     esac
 
-    cat snap/snapcraft.yaml | \
+    UBUNTU_VERSION=$(lsb_release -r)
+    SNAPCRAFT_FILE="snapcraft.yaml"
+    if [[ "$UBUNTU_VERSION" == *"21.04"* ]]; then
+        SNAPCRAFT_FILE="snapcraft21.yaml"
+    fi
+
+    cat snap/$SNAPCRAFT_FILE | \
         shyaml get-values-0 parts.$section.$key | \
         xargs -0 sudo $APT_GET install -y -qq --no-install-recommends
 }
@@ -95,10 +104,9 @@ installruntimedepsonly() {
     installdepsfromsnapcraft runtime opensfm
     echo "Installing OpenMVS Dependencies"
     installdepsfromsnapcraft runtime openmvs
-    
 }
-    
-install() {
+
+installreqs() {
     cd /code
     
     ## Set up library paths
@@ -118,11 +126,15 @@ install() {
     echo "Installing OpenMVS Dependencies"
     installdepsfromsnapcraft build openmvs
     
-
+    set -e
     pip install --ignore-installed -r requirements.txt
-    if [ ! -z "$GPU_INSTALL" ]; then
-        pip install --ignore-installed -r requirements.gpu.txt
-    fi
+    #if [ ! -z "$GPU_INSTALL" ]; then
+    #fi
+    set +e
+}
+    
+install() {
+    installreqs
 
     if [ ! -z "$PORTABLE_INSTALL" ]; then
         echo "Replacing g++ and gcc with our scripts for portability..."
@@ -143,11 +155,6 @@ install() {
     mkdir -p build && cd build
     cmake .. && make -j$processes
 
-    echo "Compiling build"
-    cd ${RUNPATH}
-    mkdir -p build && cd build
-    cmake .. && make -j$processes
-	
     echo "Configuration Finished"
 }
 
@@ -171,24 +178,9 @@ reinstall() {
 
 clean() {
     rm -rf \
-        ${RUNPATH}/SuperBuild/build/opencv \
+        ${RUNPATH}/SuperBuild/build \
         ${RUNPATH}/SuperBuild/download \
-        ${RUNPATH}/SuperBuild/src/ceres \
-        ${RUNPATH}/SuperBuild/src/untwine \
-        ${RUNPATH}/SuperBuild/src/entwine \
-        ${RUNPATH}/SuperBuild/src/gflags \
-        ${RUNPATH}/SuperBuild/src/hexer \
-        ${RUNPATH}/SuperBuild/src/lastools \
-        ${RUNPATH}/SuperBuild/src/laszip \
-        ${RUNPATH}/SuperBuild/src/mvstexturing \
-        ${RUNPATH}/SuperBuild/src/opencv \
-        ${RUNPATH}/SuperBuild/src/opengv \
-        ${RUNPATH}/SuperBuild/src/pcl \
-        ${RUNPATH}/SuperBuild/src/pdal \
-        ${RUNPATH}/SuperBuild/src/openmvs \
-        ${RUNPATH}/SuperBuild/build/openmvs \
-        ${RUNPATH}/SuperBuild/src/vcg \
-        ${RUNPATH}/SuperBuild/src/zstd
+        ${RUNPATH}/SuperBuild/src
 
     # find in /code and delete static libraries and intermediate object files
     find ${RUNPATH} -type f -name "*.a" -delete -or -type f -name "*.o" -delete
@@ -196,7 +188,7 @@ clean() {
 
 usage() {
     echo "Usage:"
-    echo "bash configure.sh <install|update|uninstall|help> [nproc]"
+    echo "bash configure.sh <install|update|uninstall|installreqs|help> [nproc]"
     echo "Subcommands:"
     echo "  install"
     echo "    Installs all dependencies and modules for running OpenDroneMap"
@@ -206,6 +198,8 @@ usage() {
     echo "    Removes SuperBuild and build modules, then re-installs them. Note this does not update OpenDroneMap to the latest version. "
     echo "  uninstall"
     echo "    Removes SuperBuild and build modules. Does not uninstall dependencies"
+    echo "  installreqs"
+    echo "    Only installs the requirements (does not build SuperBuild)"
     echo "  clean"
     echo "    Cleans the SuperBuild directory by removing temporary files. "
     echo "  help"
@@ -213,7 +207,7 @@ usage() {
     echo "[nproc] is an optional argument that can set the number of processes for the make -j tag. By default it uses $(nproc)"
 }
 
-if [[ $1 =~ ^(install|installruntimedepsonly|reinstall|uninstall|clean)$ ]]; then
+if [[ $1 =~ ^(install|installruntimedepsonly|reinstall|uninstall|installreqs|clean)$ ]]; then
     RUNPATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     "$1"
 else

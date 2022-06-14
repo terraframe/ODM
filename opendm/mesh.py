@@ -1,9 +1,10 @@
 from __future__ import absolute_import
-import os, shutil, sys, struct, random, math
+import os, shutil, sys, struct, random, math, platform
 from opendm.dem import commands
 from opendm import system
 from opendm import log
 from opendm import context
+from opendm import concurrency
 from scipy import signal
 import numpy as np
 
@@ -19,6 +20,8 @@ def create_25dmesh(inPointCloud, outMesh, dsm_radius=0.07, dsm_resolution=0.05, 
     log.ODM_INFO('Created temporary directory: %s' % tmp_directory)
 
     radius_steps = [dsm_radius]
+    for _ in range(2):
+        radius_steps.append(radius_steps[-1] * 2) # 2 is arbitrary
 
     log.ODM_INFO('Creating DSM for 2.5D mesh')
 
@@ -64,8 +67,8 @@ def dem_to_points(inGeotiff, outPointCloud, verbose=False):
         'verbose': '-verbose' if verbose else ''
     }
 
-    system.run('{bin} -inputFile {infile} '
-         '-outputFile {outfile} '
+    system.run('"{bin}" -inputFile "{infile}" '
+         '-outputFile "{outfile}" '
          '-skirtHeightThreshold 1.5 '
          '-skirtIncrements 0.2 '
          '-skirtHeightCap 100 '
@@ -99,11 +102,12 @@ def dem_to_mesh_gridded(inGeotiff, outMesh, maxVertexCount, verbose=False, maxCo
                 'maxConcurrency': maxConcurrency,
                 'verbose': '-verbose' if verbose else ''
             }
-            system.run('{bin} -inputFile {infile} '
-                '-outputFile {outfile} '
+            system.run('"{bin}" -inputFile "{infile}" '
+                '-outputFile "{outfile}" '
                 '-maxTileLength 2000 '
                 '-maxVertexCount {maxVertexCount} '
                 '-maxConcurrency {maxConcurrency} '
+                '-edgeSwapThreshold 0.15 '
                 ' {verbose} '.format(**kwargs))
             break
         except Exception as e:
@@ -117,17 +121,16 @@ def dem_to_mesh_gridded(inGeotiff, outMesh, maxVertexCount, verbose=False, maxCo
     # Cleanup and reduce vertex count if necessary 
     # (as dem2mesh cannot guarantee that we'll have the target vertex count)
     cleanupArgs = {
-        'bin': context.odm_modules_path,
+        'reconstructmesh': context.omvs_reconstructmesh_path,
         'outfile': outMesh,
         'infile': outMeshDirty,
-        'max_vertex': maxVertexCount,
-        'verbose': '-verbose' if verbose else ''
+        'max_faces': maxVertexCount * 2
     }
 
-    system.run('{bin}/odm_cleanmesh -inputFile {infile} '
-         '-outputFile {outfile} '
-         '-removeIslands '
-         '-decimateMesh {max_vertex} {verbose} '.format(**cleanupArgs))
+    system.run('"{reconstructmesh}" -i "{infile}" '
+         '-o "{outfile}" '
+         '--remove-spikes 0 --remove-spurious 0 --smooth 0 '
+         '--target-face-num {max_faces} -v 0'.format(**cleanupArgs))
 
     # Delete intermediate results
     os.remove(outMeshDirty)
@@ -146,41 +149,66 @@ def screened_poisson_reconstruction(inPointCloud, outMesh, depth = 8, samples = 
     # ext = .ply
 
     outMeshDirty = os.path.join(mesh_path, "{}.dirty{}".format(basename, ext))
+    if os.path.isfile(outMeshDirty):
+        os.remove(outMeshDirty)
+    
+    # Since PoissonRecon has some kind of a race condition on ppc64el, and this helps...
+    if platform.machine() == 'ppc64le':
+        log.ODM_WARNING("ppc64le platform detected, forcing single-threaded operation for PoissonRecon")
+        threads = 1
 
-    poissonReconArgs = {
-      'bin': context.poisson_recon_path,
-      'outfile': outMeshDirty,
-      'infile': inPointCloud,
-      'depth': depth,
-      'samples': samples,
-      'pointWeight': pointWeight,
-      'threads': threads,
-      'verbose': '--verbose' if verbose else ''
-    }
+    while True:
+        poissonReconArgs = {
+            'bin': context.poisson_recon_path,
+            'outfile': outMeshDirty,
+            'infile': inPointCloud,
+            'depth': depth,
+            'samples': samples,
+            'pointWeight': pointWeight,
+            'threads': int(threads),
+            'verbose': '--verbose' if verbose else ''
+        }
 
-    # Run PoissonRecon
-    system.run('{bin} --in {infile} '
-             '--out {outfile} '
-             '--depth {depth} '
-             '--pointWeight {pointWeight} '
-             '--samplesPerNode {samples} '
-             '--threads {threads} '
-             '--linearFit '
-             '{verbose}'.format(**poissonReconArgs))
+        # Run PoissonRecon
+        try:
+            system.run('"{bin}" --in "{infile}" '
+                    '--out "{outfile}" '
+                    '--depth {depth} '
+                    '--pointWeight {pointWeight} '
+                    '--samplesPerNode {samples} '
+                    '--threads {threads} '
+                    '--bType 2 '
+                    '--linearFit '
+                    '{verbose}'.format(**poissonReconArgs))
+        except Exception as e:
+            log.ODM_WARNING(str(e))
+            
+        if os.path.isfile(outMeshDirty):
+            break # Done!
+        else:
+
+            # PoissonRecon will sometimes fail due to race conditions
+            # on certain machines, especially on Windows
+            threads //= 2
+
+            if threads < 1:
+                break
+            else:
+                log.ODM_WARNING("PoissonRecon failed with %s threads, let's retry with %s..." % (threads, threads // 2))
+
 
     # Cleanup and reduce vertex count if necessary
     cleanupArgs = {
-        'bin': context.odm_modules_path,
+        'reconstructmesh': context.omvs_reconstructmesh_path,
         'outfile': outMesh,
-        'infile': outMeshDirty,
-        'max_vertex': maxVertexCount,
-        'verbose': '-verbose' if verbose else ''
+        'infile':outMeshDirty,
+        'max_faces': maxVertexCount * 2
     }
 
-    system.run('{bin}/odm_cleanmesh -inputFile {infile} '
-         '-outputFile {outfile} '
-         '-removeIslands '
-         '-decimateMesh {max_vertex} {verbose} '.format(**cleanupArgs))
+    system.run('"{reconstructmesh}" -i "{infile}" '
+         '-o "{outfile}" '
+         '--remove-spikes 0 --remove-spurious 20 --smooth 0 '
+         '--target-face-num {max_faces} -v 0'.format(**cleanupArgs))
 
     # Delete intermediate results
     os.remove(outMeshDirty)

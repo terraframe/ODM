@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 ################################################################################
-#   lidar2dems - utilties for creating DEMs from LiDAR data
+#   lidar2dems - utilities for creating DEMs from LiDAR data
 #
 #   AUTHOR: Matthew Hanson, matt.a.hanson@gmail.com
 #
@@ -31,13 +31,14 @@
 # Library functions for creating DEMs from Lidar data
 
 import os
+import sys
 import json as jsonlib
 import tempfile
 from opendm import system
 from opendm import log
+from opendm.utils import double_quote
 
 from datetime import datetime
-from pipes import quote
 
 
 """ JSON Functions """
@@ -154,9 +155,9 @@ def run_pipeline(json, verbose=False):
     cmd = [
         'pdal',
         'pipeline',
-        '-i %s' % jsonfile
+        '-i %s' % double_quote(jsonfile)
     ]
-    if verbose:
+    if verbose or sys.platform == 'win32':
         system.run(' '.join(cmd))
     else:
         system.run(' '.join(cmd) + ' > /dev/null 2>&1')
@@ -190,7 +191,7 @@ def merge_point_clouds(input_files, output_file, verbose=False):
     cmd = [
         'pdal',
         'merge',
-        ' '.join(map(quote, input_files + [output_file])),
+        ' '.join(map(double_quote, input_files + [output_file])),
     ]
 
     if verbose:

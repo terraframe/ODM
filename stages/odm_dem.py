@@ -11,6 +11,8 @@ from opendm.dem import commands, utils
 from opendm.cropper import Cropper
 from opendm import pseudogeo
 from opendm.tiles.tiler import generate_dem_tiles
+from opendm.cogeo import convert_to_cogeo
+
 
 class ODMDEMStage(types.ODM_Stage):
     def process(self, args, outputs):
@@ -27,11 +29,15 @@ class ODMDEMStage(types.ODM_Stage):
             ignore_resolution = True
             pseudo_georeference = True
 
+        # It is probably not reasonable to have accurate DEMs a the same resolution as the source photos, so reduce it
+        # by a factor!
+        gsd_scaling = 2.0
+
         resolution = gsd.cap_resolution(args.dem_resolution, tree.opensfm_reconstruction, 
-                        gsd_error_estimate=-3, 
-                        ignore_gsd=args.ignore_gsd,
-                        ignore_resolution=ignore_resolution,
-                        has_gcp=reconstruction.has_gcp())
+                                        gsd_scaling=gsd_scaling,
+                                        ignore_gsd=args.ignore_gsd,
+                                        ignore_resolution=ignore_resolution and args.ignore_gsd,
+                                        has_gcp=reconstruction.has_gcp())
 
         log.ODM_INFO('Classify: ' + str(args.pc_classify))
         log.ODM_INFO('Create DSM: ' + str(args.dsm))
@@ -105,14 +111,14 @@ class ODMDEMStage(types.ODM_Stage):
                     dem_geotiff_path = os.path.join(odm_dem_root, "{}.tif".format(product))
                     bounds_file_path = os.path.join(tree.odm_georeferencing, 'odm_georeferenced_model.bounds.gpkg')
 
-                    if args.crop > 0:
+                    if args.crop > 0 or args.boundary:
                         # Crop DEM
                         Cropper.crop(bounds_file_path, dem_geotiff_path, utils.get_dem_vars(args), keep_original=not args.optimize_disk_space)
 
                     if args.dem_euclidean_map:
                         unfilled_dem_path = io.related_file_path(dem_geotiff_path, postfix=".unfilled")
                         
-                        if args.crop > 0:
+                        if args.crop > 0 or args.boundary:
                             # Crop unfilled DEM
                             Cropper.crop(bounds_file_path, unfilled_dem_path, utils.get_dem_vars(args), keep_original=not args.optimize_disk_space)
 
@@ -130,6 +136,9 @@ class ODMDEMStage(types.ODM_Stage):
                     if args.tiles:
                         generate_dem_tiles(dem_geotiff_path, tree.path("%s_tiles" % product), args.max_concurrency)
                     
+                    if args.cog:
+                        convert_to_cogeo(dem_geotiff_path, max_workers=args.max_concurrency)
+
                     progress += 30
                     self.update_progress(progress)
             else:

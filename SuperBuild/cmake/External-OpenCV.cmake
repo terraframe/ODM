@@ -1,29 +1,16 @@
 set(_proj_name opencv)
 set(_SB_BINARY_DIR "${SB_BINARY_DIR}/${_proj_name}")
 
-ExternalProject_Add(opencv_contrib
-  PREFIX            ${_SB_BINARY_DIR}
-  TMP_DIR           ${_SB_BINARY_DIR}/tmp
-  STAMP_DIR         ${_SB_BINARY_DIR}/stamp
-  #--Download step--------------
-  DOWNLOAD_DIR      ${SB_DOWNLOAD_DIR}
-  URL               https://github.com/pierotofy/opencv_contrib/archive/346sift.zip
-  #--Update/Patch step----------
-  UPDATE_COMMAND    ""
-  #--Configure step-------------
-  SOURCE_DIR        ${SB_SOURCE_DIR}/opencv_contrib
-  CONFIGURE_COMMAND ""
-  BUILD_IN_SOURCE 1
-  BUILD_COMMAND   ""
-  INSTALL_COMMAND ""
-  #--Output logging-------------
-  LOG_DOWNLOAD      OFF
-  LOG_CONFIGURE     OFF
-  LOG_BUILD         OFF
-)
+if (WIN32)
+  set(WIN32_CMAKE_EXTRA_ARGS -DPYTHON3_NUMPY_INCLUDE_DIRS=${PYTHON_HOME}/lib/site-packages/numpy/core/include
+                             -DPYTHON3_PACKAGES_PATH=${PYTHON_HOME}/lib/site-packages
+                             -DPYTHON3_EXECUTABLE=${PYTHON_EXE_PATH}
+                             -DWITH_MSMF=OFF
+                             -DOPENCV_LIB_INSTALL_PATH=${SB_INSTALL_DIR}/lib
+                             -DOPENCV_BIN_INSTALL_PATH=${SB_INSTALL_DIR}/bin)
+endif()
 
 ExternalProject_Add(${_proj_name}
-  DEPENDS           opencv_contrib
   PREFIX            ${_SB_BINARY_DIR}
   TMP_DIR           ${_SB_BINARY_DIR}/tmp
   STAMP_DIR         ${_SB_BINARY_DIR}/stamp
@@ -47,10 +34,10 @@ ExternalProject_Add(${_proj_name}
     -DBUILD_opencv_objdetect=ON
     -DBUILD_opencv_photo=ON
     -DBUILD_opencv_legacy=ON
-    -DBUILD_opencv_python=ON
-    -DWITH_FFMPEG=${ODM_BUILD_SLAM}
+    -DBUILD_opencv_python3=ON
+    -DWITH_FFMPEG=OFF
     -DWITH_CUDA=OFF
-    -DWITH_GTK=${ODM_BUILD_SLAM}
+    -DWITH_GTK=OFF
     -DWITH_VTK=OFF
     -DWITH_EIGEN=OFF
     -DWITH_OPENNI=OFF
@@ -70,8 +57,10 @@ ExternalProject_Add(${_proj_name}
     -DBUILD_opencv_ts=OFF
     -DBUILD_opencv_xfeatures2d=ON
     -DOPENCV_ALLOCATOR_STATS_COUNTER_TYPE=int64_t
-    -DCMAKE_BUILD_TYPE:STRING=Release
+    -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
     -DCMAKE_INSTALL_PREFIX:PATH=${SB_INSTALL_DIR}
+    ${WIN32_CMAKE_ARGS}
+    ${WIN32_CMAKE_EXTRA_ARGS}
   #--Build step-----------------
   BINARY_DIR        ${_SB_BINARY_DIR}
   #--Install step---------------

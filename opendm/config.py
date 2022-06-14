@@ -11,18 +11,11 @@ import sys
 # parse arguments
 processopts = ['dataset', 'split', 'merge', 'opensfm', 'openmvs', 'odm_filterpoints',
                'odm_meshing', 'mvs_texturing', 'odm_georeferencing',
-               'odm_dem', 'odm_orthophoto', 'odm_report']
+               'odm_dem', 'odm_orthophoto', 'odm_report', 'odm_postprocess']
 
 with open(os.path.join(context.root_path, 'VERSION')) as version_file:
     __version__ = version_file.read().strip()
 
-
-def alphanumeric_string(string):
-    import re
-    if re.match('^[a-zA-Z0-9_-]+$', string) is None:
-        msg = '{0} is not a valid name. Must use alphanumeric characters.'.format(string)
-        raise argparse.ArgumentTypeError(msg)
-    return string
 
 def path_or_json_string(string):
     try:
@@ -68,9 +61,14 @@ def config(argv=None, parser=None):
     if args is not None and argv is None:
         return args
 
+    if sys.platform == 'win32':
+        usage_bin = 'run'
+    else:
+        usage_bin = 'run.sh'
+
     if parser is None:
-        parser = SettingsParser(description='ODM',
-                            usage='%(prog)s [options] <project name>',
+        parser = SettingsParser(description='ODM is a command line toolkit to generate maps, point clouds, 3D models and DEMs from drone, balloon or kite images.',
+                            usage='%s [options] <dataset name>' % usage_bin,
                             yaml_file=open(context.settings_path))
     
     parser.add_argument('--multispectral',
@@ -85,9 +83,9 @@ def config(argv=None, parser=None):
                         action=StoreValue,
                         help='Path to the project folder. Your project folder should contain subfolders for each dataset. Each dataset should have an "images" folder.')
     parser.add_argument('name',
-                        metavar='<project name>',
+                        metavar='<dataset name>',
                         action=StoreValue,
-                        type=alphanumeric_string,
+                        type=str,
                         default='code',
                         nargs='?',
                         help='Name of dataset (i.e subfolder name within project folder). Default: %(default)s')
@@ -104,7 +102,7 @@ def config(argv=None, parser=None):
     parser.add_argument('--end-with', '-e',
                         metavar='<string>',
                         action=StoreValue,
-                        default='odm_report',
+                        default='odm_postprocess',
                         choices=processopts,
                         help='End processing at this stage. Can be one of: %(choices)s. Default: %(default)s')
 
@@ -131,7 +129,7 @@ def config(argv=None, parser=None):
     parser.add_argument('--min-num-features',
                         metavar='<integer>',
                         action=StoreValue,
-                        default=8000,
+                        default=10000,
                         type=int,
                         help=('Minimum number of features to extract per image. '
                               'More features can be useful for finding more matches between images, '
@@ -142,7 +140,7 @@ def config(argv=None, parser=None):
                         metavar='<string>',
                         action=StoreValue,
                         default='sift',
-                        choices=['sift', 'hahog'],
+                        choices=['akaze', 'hahog', 'orb', 'sift'],
                         help=('Choose the algorithm for extracting keypoints and computing descriptors. '
                             'Can be one of: %(choices)s. Default: '
                             '%(default)s'))
@@ -160,30 +158,17 @@ def config(argv=None, parser=None):
                         metavar='<string>',
                         action=StoreValue,
                         default='flann',
-                        choices=['flann', 'bow'],
-                        help=('Matcher algorithm, Fast Library for Approximate Nearest Neighbors or Bag of Words. FLANN is slower, but more stable. BOW is faster, but can sometimes miss valid matches. '
+                        choices=['bow', 'bruteforce', 'flann'],
+                        help=('Matcher algorithm, Fast Library for Approximate Nearest Neighbors or Bag of Words. FLANN is slower, but more stable. BOW is faster, but can sometimes miss valid matches. BRUTEFORCE is very slow but robust.'
                             'Can be one of: %(choices)s. Default: '
                             '%(default)s'))
 
     parser.add_argument('--matcher-neighbors',
-                        metavar='<integer>',
-                        action=StoreValue,
-                        default=8,
-                        type=int,
-                        help='Number of nearest images to pre-match based on GPS '
-                             'exif data. Set to 0 to skip pre-matching. '
-                             'Neighbors works together with Distance parameter, '
-                             'set both to 0 to not use pre-matching. Default: %(default)s')
-
-    parser.add_argument('--matcher-distance',
-                        metavar='<integer>',
+                        metavar='<positive integer>',
                         action=StoreValue,
                         default=0,
                         type=int,
-                        help='Distance threshold in meters to find pre-matching '
-                             'images based on GPS exif data. Set both '
-                             'matcher-neighbors and this to 0 to skip '
-                             'pre-matching. Default: %(default)s')
+                        help='Perform image matching with the nearest images based on GPS exif data. Set to 0 to match by triangulation. Default: %(default)s')
 
     parser.add_argument('--use-fixed-camera-params',
                         action=StoreTrue,
@@ -201,12 +186,12 @@ def config(argv=None, parser=None):
                              'Can be specified either as path to a cameras.json file or as a '
                              'JSON string representing the contents of a '
                              'cameras.json file. Default: %(default)s')
-    
+
     parser.add_argument('--camera-lens',
             metavar='<string>',
             action=StoreValue,
             default='auto',
-            choices=['auto', 'perspective', 'brown', 'fisheye', 'spherical'],
+            choices=['auto', 'perspective', 'brown', 'fisheye', 'spherical', 'equirectangular', 'dual'],
             help=('Set a camera projection type. Manually setting a value '
                 'can help improve geometric undistortion. By default the application '
                 'tries to determine a lens type from the images metadata. Can be one of: %(choices)s. Default: '
@@ -252,8 +237,8 @@ def config(argv=None, parser=None):
                         action=StoreValue,
                         type=float,
                         default=640,
-                        help=('Legacy option (use --pc-quality instead). Controls the density of the point cloud by setting the resolution of the depthmap images. Higher values take longer to compute '
-                              'but produce denser point clouds. '
+                        help=('Controls the density of the point cloud by setting the resolution of the depthmap images. Higher values take longer to compute '
+                              'but produce denser point clouds. Overrides the value calculated by --pc-quality.'
                               'Default: %(default)s'))
 
     parser.add_argument('--use-hybrid-bundle-adjustment',
@@ -262,6 +247,15 @@ def config(argv=None, parser=None):
                         default=False,
                         help='Run local bundle adjustment for every image added to the reconstruction and a global '
                              'adjustment every 100 images. Speeds up reconstruction for very large datasets. Default: %(default)s')
+
+    parser.add_argument('--sfm-algorithm',
+                    metavar='<string>',
+                    action=StoreValue,
+                    default='incremental',
+                    choices=['incremental', 'triangulation', 'planar'],
+                    help=('Choose the structure from motion algorithm. For aerial datasets, if camera GPS positions and angles are available, triangulation can generate better results. For planar scenes captured at fixed altitude with nadir-only images, planar can be much faster. '
+                        'Can be one of: %(choices)s. Default: '
+                        '%(default)s'))
 
     parser.add_argument('--use-3dmesh',
                     action=StoreTrue,
@@ -280,7 +274,13 @@ def config(argv=None, parser=None):
                     nargs=0,
                     default=False,
                     help='Skip generation of PDF report. This can save time if you don\'t need a report. Default: %(default)s')
-
+    
+    parser.add_argument('--skip-orthophoto',
+                    action=StoreTrue,
+                    nargs=0,
+                    default=False,
+                    help='Skip generation of the orthophoto. This can save time if you only need 3D results or DEMs. Default: %(default)s')
+    
     parser.add_argument('--ignore-gsd',
                         action=StoreTrue,
                         nargs=0,
@@ -289,7 +289,13 @@ def config(argv=None, parser=None):
                         'caps the maximum resolution of image outputs and '
                         'resizes images when necessary, resulting in faster processing and '
                         'lower memory usage. Since GSD is an estimate, sometimes ignoring it can result in slightly better image output quality. Default: %(default)s')
-
+    
+    parser.add_argument('--no-gpu',
+                    action=StoreTrue,
+                    nargs=0,
+                    default=False,
+                    help='Do not use GPU acceleration, even if it\'s available. Default: %(default)s')
+    
     parser.add_argument('--mesh-size',
                         metavar='<positive integer>',
                         action=StoreValue,
@@ -299,7 +305,7 @@ def config(argv=None, parser=None):
                               'Default: %(default)s'))
 
     parser.add_argument('--mesh-octree-depth',
-                        metavar='<positive integer>',
+                        metavar='<integer: 1 <= x <= 14>',
                         action=StoreValue,
                         default=11,
                         type=int,
@@ -324,6 +330,24 @@ def config(argv=None, parser=None):
                           'around the dataset boundaries, shrinked by N meters. '
                           'Use 0 to disable cropping. '
                           'Default: %(default)s'))
+
+    parser.add_argument('--boundary',
+                    default='',
+                    metavar='<json>',
+                    action=StoreValue,
+                    type=path_or_json_string,
+                    help='GeoJSON polygon limiting the area of the reconstruction. '
+                            'Can be specified either as path to a GeoJSON file or as a '
+                            'JSON string representing the contents of a '
+                            'GeoJSON file. Default: %(default)s')
+
+    parser.add_argument('--auto-boundary',
+                    action=StoreTrue,
+                    nargs=0,
+                    default=False,
+                    help='Automatically set a boundary using camera shot locations to limit the area of the reconstruction. '
+                    'This can help remove far away background artifacts (sky, background landscapes, etc.). See also --boundary. '
+                    'Default: %(default)s')
 
     parser.add_argument('--pc-quality',
                     metavar='<string>',
@@ -361,6 +385,12 @@ def config(argv=None, parser=None):
                 default=False,
                 help='Export the georeferenced point cloud in Entwine Point Tile (EPT) format. Default: %(default)s')
 
+    parser.add_argument('--pc-copc',
+                action=StoreTrue,
+                nargs=0,
+                default=False,
+                help='Save the georeferenced point cloud in Cloud Optimized Point Cloud (COPC) format. Default: %(default)s')
+
     parser.add_argument('--pc-filter',
                         metavar='<positive float>',
                         action=StoreValue,
@@ -383,6 +413,13 @@ def config(argv=None, parser=None):
                         default=False,
                         help='Reduce the memory usage needed for depthmap fusion by splitting large scenes into tiles. Turn this on if your machine doesn\'t have much RAM and/or you\'ve set --pc-quality to high or ultra. Experimental. '
                              'Default: %(default)s')
+
+    parser.add_argument('--pc-geometric',
+                        action=StoreTrue,
+                        nargs=0,
+                        default=False,
+                        help='Improve the accuracy of the point cloud by computing geometrically consistent depthmaps. This increases processing time, but can improve results in urban scenes. '
+                             'Default: %(default)s')    
 
     parser.add_argument('--smrf-scalar',
                         metavar='<positive float>',
@@ -441,6 +478,13 @@ def config(argv=None, parser=None):
                         nargs=0,
                         default=False,
                         help='Skip the blending of colors near seams. Default: %(default)s')
+
+    parser.add_argument('--texturing-keep-unseen-faces',
+                        action=StoreTrue,
+                        nargs=0,
+                        default=False,
+                        help=('Keep faces in the mesh that are not seen in any camera. '
+                              'Default:  %(default)s'))
 
     parser.add_argument('--texturing-tone-mapping',
                         metavar='<string>',
@@ -556,12 +600,14 @@ def config(argv=None, parser=None):
                         help='Set this parameter if you want to generate a PNG rendering of the orthophoto. '
                              'Default: %(default)s')
     
-    parser.add_argument('--orthophoto-png',
+
+    parser.add_argument('--orthophoto-kmz',
                         action=StoreTrue,
                         nargs=0,
                         default=False,
-                        help='Set this parameter if you want to generate a PNG rendering of the orthophoto.\n'
-                             'Default: %(default)s')
+                        help='Set this parameter if you want to generate a Google Earth (KMZ) rendering of the orthophoto. '
+                             'Default: %(default)s')    
+    
 
     parser.add_argument('--orthophoto-compression',
                         metavar='<string>',
@@ -589,11 +635,24 @@ def config(argv=None, parser=None):
                          'suitable for viewers like Leaflet or OpenLayers. '
                          'Default: %(default)s')
 
+    parser.add_argument('--3d-tiles',
+                        action=StoreTrue,
+                        nargs=0,
+                        default=False,
+                        help='Generate OGC 3D Tiles outputs. Default: %(default)s')
+
     parser.add_argument('--build-overviews',
                         action=StoreTrue,
                         nargs=0,
                         default=False,
                         help='Build orthophoto overviews for faster display in programs such as QGIS. Default: %(default)s')
+
+    parser.add_argument('--cog',
+                        action=StoreTrue,
+                        nargs=0,
+                        default=False,
+                        help='Create Cloud-Optimized GeoTIFFs instead of normal GeoTIFFs. Default: %(default)s')
+
 
     parser.add_argument('--verbose', '-v',
                         action=StoreTrue,
@@ -601,6 +660,11 @@ def config(argv=None, parser=None):
                         default=False,
                         help='Print additional messages to the console. '
                              'Default: %(default)s')
+    
+    parser.add_argument('--copy-to',
+                        metavar='<path>',
+                        action=StoreValue,
+                        help='Copy output results to this folder after processing.')
 
     parser.add_argument('--time',
                         action=StoreTrue,
@@ -766,8 +830,4 @@ def config(argv=None, parser=None):
             log.ODM_ERROR("Cluster node seems to be offline: %s"  % str(e))
             sys.exit(1)
     
-    # if args.radiometric_calibration != "none" and not args.texturing_skip_global_seam_leveling:
-    #     log.ODM_WARNING("radiometric-calibration is turned on, automatically setting --texturing-skip-global-seam-leveling")
-    #     args.texturing_skip_global_seam_leveling = True
-
     return args

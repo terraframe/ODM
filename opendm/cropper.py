@@ -5,6 +5,7 @@ from opendm.point_cloud import export_summary_json
 from osgeo import ogr
 import json, os
 from opendm.concurrency import get_max_memory
+from opendm.utils import double_quote
 
 class Cropper:
     def __init__(self, storage_dir, files_prefix = "crop"):
@@ -37,13 +38,13 @@ class Cropper:
         # ext = .tif
 
         original_geotiff = os.path.join(path, "{}.original{}".format(basename, ext))
-        os.rename(geotiff_path, original_geotiff)
+        os.replace(geotiff_path, original_geotiff)
 
         try:
             kwargs = {
-                'gpkg_path': gpkg_path,
-                'geotiffInput': original_geotiff,
-                'geotiffOutput': geotiff_path,
+                'gpkg_path': double_quote(gpkg_path),
+                'geotiffInput': double_quote(original_geotiff),
+                'geotiffOutput': double_quote(geotiff_path),
                 'options': ' '.join(map(lambda k: '-co {}={}'.format(k, gdal_options[k]), gdal_options)),
                 'warpOptions': ' '.join(warp_options),
                 'max_memory': get_max_memory()
@@ -64,7 +65,7 @@ class Cropper:
             log.ODM_WARNING('Something went wrong while cropping: {}'.format(e))
             
             # Revert rename
-            os.rename(original_geotiff, geotiff_path)
+            os.replace(original_geotiff, geotiff_path)
 
         return geotiff_path
 
@@ -148,7 +149,7 @@ class Cropper:
 
         boundary_file_path = self.path('boundary.json')
 
-        run('pdal info --boundary --filters.hexbin.edge_size=1 --filters.hexbin.threshold=0 {0} > {1}'.format(decimated_pointcloud_path,  boundary_file_path))
+        run('pdal info --boundary --filters.hexbin.edge_size=1 --filters.hexbin.threshold=0 "{0}" > "{1}"'.format(decimated_pointcloud_path,  boundary_file_path))
         
         pc_geojson_boundary_feature = None
 
@@ -159,8 +160,8 @@ class Cropper:
         if pc_geojson_boundary_feature is None: raise RuntimeError("Could not determine point cloud boundaries")
 
         # Write bounds to GeoJSON
-        bounds_geojson_path = self.path('bounds.geojson')
-        with open(bounds_geojson_path, "w") as f:
+        tmp_bounds_geojson_path = self.path('tmp-bounds.geojson')
+        with open(tmp_bounds_geojson_path, "w") as f:
             f.write(json.dumps({
                 "type": "FeatureCollection",
                 "features": [{
@@ -172,7 +173,7 @@ class Cropper:
         # Create a convex hull around the boundary
         # as to encompass the entire area (no holes)    
         driver = ogr.GetDriverByName('GeoJSON')
-        ds = driver.Open(bounds_geojson_path, 0) # ready-only
+        ds = driver.Open(tmp_bounds_geojson_path, 0) # ready-only
         layer = ds.GetLayer()
 
         # Collect all Geometry
@@ -202,7 +203,7 @@ class Cropper:
         # Save to a new file
         bounds_geojson_path = self.path('bounds.geojson')
         if os.path.exists(bounds_geojson_path):
-            driver.DeleteDataSource(bounds_geojson_path)
+            os.remove(bounds_geojson_path)
 
         out_ds = driver.CreateDataSource(bounds_geojson_path)
         layer = out_ds.CreateLayer("convexhull", geom_type=ogr.wkbPolygon)
@@ -219,6 +220,10 @@ class Cropper:
         # Remove decimated point cloud
         if os.path.exists(decimated_pointcloud_path):
             os.remove(decimated_pointcloud_path)
+        
+        # Remove tmp bounds
+        if os.path.exists(tmp_bounds_geojson_path):
+            os.remove(tmp_bounds_geojson_path)
 
         return bounds_geojson_path
 
@@ -248,10 +253,13 @@ class Cropper:
 
         bounds_gpkg_path = os.path.join(self.storage_dir, '{}.bounds.gpkg'.format(self.files_prefix))
 
+        if os.path.isfile(bounds_gpkg_path):
+            os.remove(bounds_gpkg_path)
+
         # Convert bounds to GPKG
         kwargs = {
-            'input': bounds_geojson_path,
-            'output': bounds_gpkg_path,
+            'input': double_quote(bounds_geojson_path),
+            'output': double_quote(bounds_gpkg_path),
             'proj4': pc_proj4
         }
 

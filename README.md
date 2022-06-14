@@ -15,7 +15,7 @@ If you would rather not type commands in a shell and are looking for a friendly 
 
 ## Quickstart
 
-The easiest way to run ODM is via docker. To install docker, see [docs.docker.com](https://docs.docker.com). Once you have docker installed and [working](https://docs.docker.com/get-started/#test-docker-installation), you can run ODM by placing some images (JPEGs or TIFFs) in a folder named “images” (for example `C:\Users\youruser\datasets\project\images` or `/home/youruser/datasets/project/images`) and simply run from a Command Prompt / Terminal:
+The easiest way to run ODM on is via docker. To install docker, see [docs.docker.com](https://docs.docker.com). Once you have docker installed and [working](https://docs.docker.com/get-started/#test-docker-installation), you can run ODM by placing some images (JPEGs or TIFFs) in a folder named “images” (for example `C:\Users\youruser\datasets\project\images` or `/home/youruser/datasets/project/images`) and simply run from a Command Prompt / Terminal:
 
 ```bash
 # Windows
@@ -25,7 +25,7 @@ docker run -ti --rm -v c:/Users/youruser/datasets:/datasets opendronemap/odm --p
 docker run -ti --rm -v /home/youruser/datasets:/datasets opendronemap/odm --project-path /datasets project
 ```
 
-You can pass [additional parameters](https://docs.opendronemap.org/arguments.html) by appending them to the command:
+You can pass [additional parameters](https://docs.opendronemap.org/arguments/) by appending them to the command:
 
 ```bash
 docker run -ti --rm -v /datasets:/datasets opendronemap/odm --project-path /datasets project [--additional --parameters --here]
@@ -73,7 +73,15 @@ See http://docs.opendronemap.org for tutorials and more guides.
 
 ## Forum
 
-We have a vibrant [community forum](https://community.opendronemap.org/). You can [search it](https://community.opendronemap.org/search?expanded=true) for issues you might be having with ODM and you can post questions there. We encourage users of ODM to partecipate in the forum and to engage with fellow drone mapping users.
+We have a vibrant [community forum](https://community.opendronemap.org/). You can [search it](https://community.opendronemap.org/search?expanded=true) for issues you might be having with ODM and you can post questions there. We encourage users of ODM to participate in the forum and to engage with fellow drone mapping users.
+
+## Windows Setup
+
+ODM can be installed natively on Windows. Just download the latest setup from the [releases](https://github.com/OpenDroneMap/ODM/releases) page. After opening the ODM Console you can process datasets by typing:
+
+```bash
+run C:\Users\youruser\datasets\project  [--additional --parameters --here]
+```
 
 ## Snap Package
 
@@ -116,7 +124,7 @@ When you run ODM, if the GPU is recognized, in the first few lines of output you
 [INFO]    Using GPU for extracting SIFT features
 ```
 
-The SIFT GPU implementation is OpenCL-based, so should work with most graphics card (not just NVIDIA).
+The SIFT GPU implementation is CUDA-based, so should work with most NVIDIA graphics cards of the GTX 9xx Generation or newer.
 
 If you have an NVIDIA card, you can test that docker is recognizing the GPU by running:
 
@@ -185,9 +193,9 @@ Finally you'll want to delete the files by using your Windows File Manager (Expl
 
 If you have installed to a different directory by changing the `--import` command you ran to install you must use that directory name to delete the correct files. This is likely the case if you have multiple ODM installations or are updating an already-installed installation.
 
-## Native Install (Ubuntu 20.04)
+## Native Install (Ubuntu 21.04)
 
-You can run ODM natively on Ubuntu 20.04 LTS (although we don't recommend it):  
+You can run ODM natively on Ubuntu 21.04 (although we don't recommend it):  
 
 1. Download the source from [here](https://github.com/OpenDroneMap/ODM/archive/master.zip)
 2. Run `bash configure.sh install`
@@ -256,7 +264,13 @@ If you have questions, join the developer's chat at https://community.opendronem
 2. Submit a pull request with detailed changes and test results
 3. Have fun!
 
-### Credits
+### Troubleshooting
+The dev environment makes use of `opendronemap/nodeodm` by default. You may want to run 
+`docker pull opendronemap/nodeodm` before running `./start-dev-env.sh` to avoid using an old cached version.
+
+In order to make a clean build, remove `~/.odm-dev-home` and `ODM/.setupdevenv`.
+
+## Credits
 
 ODM makes use of [several libraries](https://github.com/OpenDroneMap/ODM/blob/master/snap/snapcraft.yaml#L36) and other awesome open source projects to perform its tasks. Among them we'd like to highlight:
 
@@ -270,6 +284,10 @@ ODM makes use of [several libraries](https://github.com/OpenDroneMap/ODM/blob/ma
  - [PoissonRecon](https://github.com/mkazhdan/PoissonRecon)
 
 
-### Citation
+## Citation
 
 > *OpenDroneMap Authors* ODM - A command line toolkit to generate maps, point clouds, 3D models and DEMs from drone, balloon or kite images. **OpenDroneMap/ODM GitHub Page** 2020; [https://github.com/OpenDroneMap/ODM](https://github.com/OpenDroneMap/ODM)
+
+## Trademark
+
+See [Trademark Guidelines](https://github.com/OpenDroneMap/documents/blob/master/TRADEMARK.md)

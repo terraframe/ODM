@@ -9,9 +9,10 @@ from opendm import gsd
 from opendm import orthophoto
 from opendm.concurrency import get_max_memory
 from opendm.cutline import compute_cutline
-from pipes import quote
+from opendm.utils import double_quote
 from opendm import pseudogeo
 from opendm.multispectral import get_primary_band_name
+
 
 class ODMOrthoPhotoStage(types.ODM_Stage):
     def process(self, args, outputs):
@@ -22,23 +23,20 @@ class ODMOrthoPhotoStage(types.ODM_Stage):
         # define paths and create working directories
         system.mkdir_p(tree.odm_orthophoto)
 
+        if args.skip_orthophoto:
+            log.ODM_WARNING("--skip-orthophoto is set, no orthophoto will be generated")
+            return
+
         if not io.file_exists(tree.odm_orthophoto_tif) or self.rerun():
-            gsd_error_estimate = 0.1
-            ignore_resolution = False
-            if not reconstruction.is_georeferenced():
-                # Match DEMs
-                gsd_error_estimate = -3
-                ignore_resolution = True
 
             resolution = 1.0 / (gsd.cap_resolution(args.orthophoto_resolution, tree.opensfm_reconstruction,
-                                                    gsd_error_estimate=gsd_error_estimate, 
-                                                    ignore_gsd=args.ignore_gsd,
-                                                    ignore_resolution=ignore_resolution,
-                                                    has_gcp=reconstruction.has_gcp()) / 100.0)
+                                                   ignore_gsd=args.ignore_gsd,
+                                                   ignore_resolution=(not reconstruction.is_georeferenced()) and args.ignore_gsd,
+                                                   has_gcp=reconstruction.has_gcp()) / 100.0)
 
             # odm_orthophoto definitions
             kwargs = {
-                'bin': context.odm_modules_path,
+                'odm_ortho_bin': context.odm_orthophoto_path,
                 'log': tree.odm_orthophoto_log,
                 'ortho': tree.odm_orthophoto_render,
                 'corners': tree.odm_orthophoto_corners,
@@ -63,16 +61,16 @@ class ODMOrthoPhotoStage(types.ODM_Stage):
                     if not primary:
                         subdir = band['name'].lower()
                     models.append(os.path.join(base_dir, subdir, model_file))
-                kwargs['bands'] = '-bands %s' % (','.join([quote(b['name']) for b in reconstruction.multi_camera]))
+                kwargs['bands'] = '-bands %s' % (','.join([double_quote(b['name']) for b in reconstruction.multi_camera]))
             else:
                 models.append(os.path.join(base_dir, model_file))
 
-            kwargs['models'] = ','.join(map(quote, models))
+            kwargs['models'] = ','.join(map(double_quote, models))
 
             # run odm_orthophoto
-            system.run('{bin}/odm_orthophoto -inputFiles {models} '
-                       '-logFile {log} -outputFile {ortho} -resolution {res} {verbose} '
-                       '-outputCornerFile {corners} {bands}'.format(**kwargs))
+            system.run('"{odm_ortho_bin}" -inputFiles {models} '
+                       '-logFile "{log}" -outputFile "{ortho}" -resolution {res} {verbose} '
+                       '-outputCornerFile "{corners}" {bands}'.format(**kwargs))
 
             # Create georeferenced GeoTiff
             geotiffcreated = False
@@ -114,7 +112,7 @@ class ODMOrthoPhotoStage(types.ODM_Stage):
                            '-a_srs \"{proj}\" '
                            '--config GDAL_CACHEMAX {max_memory}% '
                            '--config GDAL_TIFF_INTERNAL_MASK YES '
-                           '{input} {output} > {log}'.format(**kwargs))
+                           '"{input}" "{output}" > "{log}"'.format(**kwargs))
 
                 bounds_file_path = os.path.join(tree.odm_georeferencing, 'odm_georeferenced_model.bounds.gpkg')
                     
@@ -127,7 +125,6 @@ class ODMOrthoPhotoStage(types.ODM_Stage):
                                     bounds_file_path,
                                     cutline_file,
                                     args.max_concurrency,
-                                    tmpdir=os.path.join(tree.odm_orthophoto, "grass_cutline_tmpdir"),
                                     scale=0.25)
 
                     orthophoto.compute_mask_raster(tree.odm_orthophoto_tif, cutline_file, 
@@ -148,7 +145,7 @@ class ODMOrthoPhotoStage(types.ODM_Stage):
                 if io.file_exists(tree.odm_orthophoto_render):
                     pseudogeo.add_pseudo_georeferencing(tree.odm_orthophoto_render)
                     log.ODM_INFO("Renaming %s --> %s" % (tree.odm_orthophoto_render, tree.odm_orthophoto_tif))
-                    os.rename(tree.odm_orthophoto_render, tree.odm_orthophoto_tif)
+                    os.replace(tree.odm_orthophoto_render, tree.odm_orthophoto_tif)
                 else:
                     log.ODM_WARNING("Could not generate an orthophoto (it did not render)")
         else:

@@ -12,6 +12,7 @@ from opendm import system
 from opendm.concurrency import get_max_memory, parallel_map
 from scipy import ndimage
 from datetime import datetime
+from opendm.vendor.gdal_fillnodata import main as gdal_fillnodata
 from opendm import log
 try:
     import Queue as queue
@@ -22,6 +23,16 @@ import threading
 from .ground_rectification.rectify import run_rectification
 from . import pdal
 
+try:
+    # GDAL >= 3.3
+    from osgeo_utils.gdal_proximity import main as gdal_proximity
+except ModuleNotFoundError:
+    # GDAL <= 3.2
+    try:
+        from osgeo.utils.gdal_proximity import main as gdal_proximity
+    except:
+        pass
+
 def classify(lasFile, scalar, slope, threshold, window, verbose=False):
     start = datetime.now()
 
@@ -30,7 +41,7 @@ def classify(lasFile, scalar, slope, threshold, window, verbose=False):
     except:
         log.ODM_WARNING("Error creating classified file %s" % lasFile)
 
-    log.ODM_INFO('Created %s in %s' % (os.path.relpath(lasFile), datetime.now() - start))
+    log.ODM_INFO('Created %s in %s' % (lasFile, datetime.now() - start))
     return lasFile
 
 def rectify(lasFile, debug=False, reclassify_threshold=5, min_area=750, min_points=500):
@@ -38,7 +49,7 @@ def rectify(lasFile, debug=False, reclassify_threshold=5, min_area=750, min_poin
 
     try:
         # Currently, no Python 2 lib that supports reading and writing LAZ, so we will do it manually until ODM is migrated to Python 3
-        # When migration is done, we can move to pylas and avoid using PDAL for convertion
+        # When migration is done, we can move to pylas and avoid using PDAL for conversion
         tempLasFile = os.path.join(os.path.dirname(lasFile), 'tmp.las')
 
         # Convert LAZ to LAS
@@ -70,7 +81,7 @@ def rectify(lasFile, debug=False, reclassify_threshold=5, min_area=750, min_poin
     except Exception as e:
         raise Exception("Error rectifying ground in file %s: %s" % (lasFile, str(e)))
 
-    log.ODM_INFO('Created %s in %s' % (os.path.relpath(lasFile), datetime.now() - start))
+    log.ODM_INFO('Created %s in %s' % (lasFile, datetime.now() - start))
     return lasFile
 
 error = None
@@ -185,10 +196,15 @@ def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56']
     for t in tiles: 
         if not os.path.exists(t['filename']):
             raise Exception("Error creating %s, %s failed to be created" % (output_file, t['filename']))
-    
+
     # Create virtual raster
     tiles_vrt_path = os.path.abspath(os.path.join(outdir, "tiles.vrt"))
-    run('gdalbuildvrt "%s" "%s"' % (tiles_vrt_path, '" "'.join(map(lambda t: t['filename'], tiles))))
+    tiles_file_list = os.path.abspath(os.path.join(outdir, "tiles_list.txt"))
+    with open(tiles_file_list, 'w') as f:
+        for t in tiles:
+            f.write(t['filename'] + '\n')
+
+    run('gdalbuildvrt -input_file_list "%s" "%s" ' % (tiles_file_list, tiles_vrt_path))
 
     merged_vrt_path = os.path.abspath(os.path.join(outdir, "merged.vrt"))
     geotiff_tmp_path = os.path.abspath(os.path.join(outdir, 'tiles.tmp.tif'))
@@ -216,7 +232,7 @@ def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56']
                 '-co NUM_THREADS={threads} '
                 '-co BIGTIFF=IF_SAFER '
                 '--config GDAL_CACHEMAX {max_memory}% '
-                '{tiles_vrt} {geotiff_tmp}'.format(**kwargs))
+                '"{tiles_vrt}" "{geotiff_tmp}"'.format(**kwargs))
 
         # Scale to 10% size
         run('gdal_translate '
@@ -224,17 +240,17 @@ def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56']
             '-co BIGTIFF=IF_SAFER '
             '--config GDAL_CACHEMAX {max_memory}% '
             '-outsize 10% 0 '
-            '{geotiff_tmp} {geotiff_small}'.format(**kwargs))
+            '"{geotiff_tmp}" "{geotiff_small}"'.format(**kwargs))
 
         # Fill scaled
-        run('gdal_fillnodata.py '
-            '-co NUM_THREADS={threads} '
-            '-co BIGTIFF=IF_SAFER '
-            '--config GDAL_CACHEMAX {max_memory}% '
-            '-b 1 '
-            '-of GTiff '
-            '{geotiff_small} {geotiff_small_filled}'.format(**kwargs))
-
+        gdal_fillnodata(['.', 
+                        '-co', 'NUM_THREADS=%s' % kwargs['threads'], 
+                        '-co', 'BIGTIFF=IF_SAFER',
+                        '--config', 'GDAL_CACHE_MAX', str(kwargs['max_memory']) + '%',
+                        '-b', '1',
+                        '-of', 'GTiff',
+                        kwargs['geotiff_small'], kwargs['geotiff_small_filled']])
+        
         # Merge filled scaled DEM with unfilled DEM using bilinear interpolation
         run('gdalbuildvrt -resolution highest -r bilinear "%s" "%s" "%s"' % (merged_vrt_path, geotiff_small_filled_path, geotiff_tmp_path))
         run('gdal_translate '
@@ -243,7 +259,7 @@ def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56']
             '-co BIGTIFF=IF_SAFER '
             '-co COMPRESS=DEFLATE '
             '--config GDAL_CACHEMAX {max_memory}% '
-            '{merged_vrt} {geotiff}'.format(**kwargs))
+            '"{merged_vrt}" "{geotiff}"'.format(**kwargs))
     else:
         run('gdal_translate '
                 '-co NUM_THREADS={threads} '
@@ -251,25 +267,25 @@ def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56']
                 '-co BIGTIFF=IF_SAFER '
                 '-co COMPRESS=DEFLATE '
                 '--config GDAL_CACHEMAX {max_memory}% '
-                '{tiles_vrt} {geotiff}'.format(**kwargs))
+                '"{tiles_vrt}" "{geotiff}"'.format(**kwargs))
 
     if apply_smoothing:
         median_smoothing(geotiff_path, output_path)
         os.remove(geotiff_path)
     else:
-        os.rename(geotiff_path, output_path)
+        os.replace(geotiff_path, output_path)
 
     if os.path.exists(geotiff_tmp_path):
         if not keep_unfilled_copy: 
             os.remove(geotiff_tmp_path)
         else:
-            os.rename(geotiff_tmp_path, io.related_file_path(output_path, postfix=".unfilled"))
+            os.replace(geotiff_tmp_path, io.related_file_path(output_path, postfix=".unfilled"))
     
-    for cleanup_file in [tiles_vrt_path, merged_vrt_path, geotiff_small_path, geotiff_small_filled_path]:
+    for cleanup_file in [tiles_vrt_path, tiles_file_list, merged_vrt_path, geotiff_small_path, geotiff_small_filled_path]:
         if os.path.exists(cleanup_file): os.remove(cleanup_file)
     for t in tiles:
         if os.path.exists(t['filename']): os.remove(t['filename'])
-    
+
     log.ODM_INFO('Completed %s in %s' % (output_file, datetime.now() - start))
 
 
@@ -284,12 +300,20 @@ def compute_euclidean_map(geotiff_path, output_path, overwrite=False):
 
     if not os.path.exists(output_path) or overwrite:
         log.ODM_INFO("Computing euclidean distance: %s" % output_path)
-        run('gdal_proximity.py "%s" "%s" -values %s' % (geotiff_path, output_path, nodata))
 
-        if os.path.exists(output_path):
-            return output_path
+        if gdal_proximity is not None:
+            try:
+                gdal_proximity(['gdal_proximity.py', geotiff_path, output_path, '-values', str(nodata)])
+            except Exception as e:
+                log.ODM_WARNING("Cannot compute euclidean distance: %s" % str(e))
+
+            if os.path.exists(output_path):
+                return output_path
+            else:
+                log.ODM_WARNING("Cannot compute euclidean distance file: %s" % output_path)
         else:
-            log.ODM_WARNING("Cannot compute euclidean distance file: %s" % output_path)
+            log.ODM_WARNING("Cannot compute euclidean map, gdal_proximity is missing")
+            
     else:
         log.ODM_INFO("Found a euclidean distance map: %s" % output_path)
         return output_path
@@ -309,28 +333,22 @@ def median_smoothing(geotiff_path, output_path, smoothing_iterations=1):
         dtype = img.dtypes[0]
         arr = img.read()[0]
 
+        nodata_locs = numpy.where(arr == nodata)
+
         # Median filter (careful, changing the value 5 might require tweaking)
         # the lines below. There's another numpy function that takes care of 
         # these edge cases, but it's slower.
         for i in range(smoothing_iterations):
             log.ODM_INFO("Smoothing iteration %s" % str(i + 1))
-            arr = ndimage.median_filter(arr, size=5, output=dtype)
-
-        # Fill corner points with nearest value
-        if arr.shape >= (4, 4):
-            arr[0][:2] = arr[1][0] = arr[1][1]
-            arr[0][-2:] = arr[1][-1] = arr[2][-1]
-            arr[-1][:2] = arr[-2][0] = arr[-2][1]
-            arr[-1][-2:] = arr[-2][-1] = arr[-2][-2]
+            arr = ndimage.median_filter(arr, size=9, output=dtype, mode='nearest')
 
         # Median filter leaves a bunch of zeros in nodata areas
-        locs = numpy.where(arr == 0.0)
-        arr[locs] = nodata
+        arr[nodata_locs] = nodata
 
         # write output
         with rasterio.open(output_path, 'w', **img.profile) as imgout:
             imgout.write(arr, 1)
     
-    log.ODM_INFO('Completed smoothing to create %s in %s' % (os.path.relpath(output_path), datetime.now() - start))
+    log.ODM_INFO('Completed smoothing to create %s in %s' % (output_path, datetime.now() - start))
 
     return output_path

@@ -1,6 +1,7 @@
 import os
+import sys
 import shutil
-from pipes import quote
+from opendm.utils import double_quote
 from opendm import io
 from opendm import log
 from opendm import system
@@ -34,39 +35,52 @@ def build(input_point_cloud_files, output_path, max_concurrency=8, rerun=False):
         log.ODM_WARNING("Cannot build EPT using entwine (%s), attempting with untwine..." % str(e))
         dir_cleanup()
         build_untwine(input_point_cloud_files, tmpdir, output_path, max_concurrency=max_concurrency)
-        
+
     if os.path.exists(tmpdir):
         shutil.rmtree(tmpdir)
 
 
-def build_entwine(input_point_cloud_files, tmpdir, output_path, max_concurrency=8):
+def build_entwine(input_point_cloud_files, tmpdir, output_path, max_concurrency=8, reproject=None):
     kwargs = {
         'threads': max_concurrency,
         'tmpdir': tmpdir,
-        'all_inputs': "-i " + " ".join(map(quote, input_point_cloud_files)),
-        'outputdir': output_path
+        'all_inputs': "-i " + " ".join(map(double_quote, input_point_cloud_files)),
+        'outputdir': output_path,
+        'reproject': (" -r %s " % reproject) if reproject is not None else "" 
     }
 
-    # Run scan to compute dataset bounds
-    system.run('entwine scan --threads {threads} --tmp "{tmpdir}" {all_inputs} -o "{outputdir}"'.format(**kwargs))
-    scan_json = os.path.join(output_path, "scan.json")
-
-    if os.path.exists(scan_json):
-        kwargs['input'] = scan_json
-        for _ in range(len(input_point_cloud_files)):
-            # One at a time
-            system.run('entwine build --threads {threads} --tmp "{tmpdir}" -i "{input}" -o "{outputdir}" --run 1'.format(**kwargs))
-    else:
-        log.ODM_WARNING("%s does not exist, no point cloud will be built." % scan_json)
-        
+    system.run('entwine build --threads {threads} --tmp "{tmpdir}" {all_inputs} -o "{outputdir}" {reproject}'.format(**kwargs))
 
 def build_untwine(input_point_cloud_files, tmpdir, output_path, max_concurrency=8, rerun=False):
     kwargs = {
         # 'threads': max_concurrency,
         'tmpdir': tmpdir,
-        'files': "--files " + " ".join(map(quote, input_point_cloud_files)),
+        'files': "--files " + " ".join(map(double_quote, input_point_cloud_files)),
         'outputdir': output_path
     }
 
     # Run untwine
     system.run('untwine --temp_dir "{tmpdir}" {files} --output_dir "{outputdir}"'.format(**kwargs))
+
+def build_copc(input_point_cloud_files, output_file):
+    if len(input_point_cloud_files) == 0:
+        logger.ODM_WARNING("Cannot build COPC, no input files")
+        return
+
+    base_path, ext = os.path.splitext(output_file)
+    tmpdir = io.related_file_path(base_path, postfix="-tmp")
+    if os.path.exists(tmpdir):
+        log.ODM_WARNING("Removing previous directory %s" % tmpdir)
+        shutil.rmtree(tmpdir)
+
+    kwargs = {
+        'tmpdir': tmpdir,
+        'files': "--files " + " ".join(map(double_quote, input_point_cloud_files)),
+        'output': output_file
+    }
+
+    # Run untwine
+    system.run('untwine --temp_dir "{tmpdir}" {files} -o "{output}" --single_file'.format(**kwargs))
+
+    if os.path.exists(tmpdir):
+        shutil.rmtree(tmpdir)

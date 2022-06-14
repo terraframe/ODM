@@ -4,12 +4,13 @@ import json
 from opendm import context
 from opendm import io
 from opendm import types
+from opendm.photo import PhotoCorruptedException
 from opendm import log
 from opendm import system
 from opendm.geo import GeoFile
 from shutil import copyfile
 from opendm import progress
-
+from opendm import boundary
 
 def save_images_database(photos, database_file):
     with open(database_file, 'w') as f:
@@ -40,7 +41,17 @@ def load_images_database(database_file):
 
 class ODMLoadDatasetStage(types.ODM_Stage):
     def process(self, args, outputs):
+        outputs['start_time'] = system.now_raw()
+
+        ### The tree was initialized in odm_app.py. So we don't want to create it here, we just want to load it. ###
         tree = outputs['tree']
+        ### End TerraFrame specific non-standard ODM behaviour ###
+ 
+        if args.time and io.file_exists(tree.benchmarking):
+            # Delete the previously made file
+            os.remove(tree.benchmarking)
+            with open(tree.benchmarking, 'a') as b:
+                b.write('ODM Benchmarking file created %s\nNumber of Cores: %s\n\n' % (system.now(), context.num_cores))
     
         # check if the image filename is supported
         def valid_image_filename(filename):
@@ -82,6 +93,9 @@ class ODMLoadDatasetStage(types.ODM_Stage):
         # check if we rerun cell or not
         images_database_file = os.path.join(tree.root_path, 'images.json')
         if not io.file_exists(images_database_file) or self.rerun():
+            if not os.path.exists(images_dir):
+                raise system.ExitException("There are no images in %s! Make sure that your project path and dataset name is correct. The current is set to: %s" % (images_dir, args.project_path))
+
             files, rejects = get_images(images_dir)
             if files:
                 # create ODMPhoto list
@@ -98,13 +112,16 @@ class ODMLoadDatasetStage(types.ODM_Stage):
                 with open(tree.dataset_list, 'w') as dataset_list:
                     log.ODM_INFO("Loading %s images" % len(path_files))
                     for f in path_files:
-                        p = types.ODM_Photo(f)
-                        p.set_mask(find_mask(f, masks))
-                        photos += [p]
-                        dataset_list.write(photos[-1].filename + '\n')
-                
+                        try:
+                            p = types.ODM_Photo(f)
+                            p.set_mask(find_mask(f, masks))
+                            photos += [p]
+                            dataset_list.write(photos[-1].filename + '\n')
+                        except PhotoCorruptedException:
+                            log.ODM_WARNING("%s seems corrupted and will not be used" % os.path.basename(f))
+
                 # Check if a geo file is available
-                if tree.odm_geo_file is not None and os.path.exists(tree.odm_geo_file):
+                if tree.odm_geo_file is not None and os.path.isfile(tree.odm_geo_file):
                     log.ODM_INFO("Found image geolocation file")
                     gf = GeoFile(tree.odm_geo_file)
                     updated = 0
@@ -115,16 +132,30 @@ class ODMLoadDatasetStage(types.ODM_Stage):
                             updated += 1
                     log.ODM_INFO("Updated %s image positions" % updated)
 
+                # GPSDOP override if we have GPS accuracy information (such as RTK)
+                if 'gps_accuracy_is_set' in args:
+                    log.ODM_INFO("Forcing GPS DOP to %s for all images" % args.gps_accuracy)
+
+                    for p in photos:
+                        p.override_gps_dop(args.gps_accuracy)
+                
+                # Override projection type
+                if args.camera_lens != "auto":
+                    log.ODM_INFO("Setting camera lens to %s for all images" % args.camera_lens)
+
+                    for p in photos:
+                        p.override_camera_projection(args.camera_lens)
+
                 # Save image database for faster restart
                 save_images_database(photos, images_database_file)
             else:
-                log.ODM_ERROR('Not enough supported images in %s' % images_dir)
-                exit(1)
+                raise system.ExitException('Not enough supported images in %s' % images_dir)
         else:
             # We have an images database, just load it
             photos = load_images_database(images_database_file)
 
         log.ODM_INFO('Found %s usable images' % len(photos))
+        log.logger.log_json_images(len(photos))
 
         # Create reconstruction object
         reconstruction = types.ODM_Reconstruction(photos)
@@ -143,3 +174,19 @@ class ODMLoadDatasetStage(types.ODM_Stage):
         
         reconstruction.save_proj_srs(os.path.join(tree.odm_georeferencing, tree.odm_georeferencing_proj))
         outputs['reconstruction'] = reconstruction
+
+        # Try to load boundaries
+        if args.boundary:
+            if reconstruction.is_georeferenced():
+                outputs['boundary'] = boundary.load_boundary(args.boundary, reconstruction.get_proj_srs())
+            else:
+                args.boundary = None
+                log.ODM_WARNING("Reconstruction is not georeferenced, but boundary file provided (will ignore boundary file)")
+
+        # If sfm-algorithm is triangulation, check if photos have OPK
+        if args.sfm_algorithm == 'triangulation':
+            for p in photos:
+                if not p.has_opk():
+                    log.ODM_WARNING("No omega/phi/kappa angles found in input photos (%s), switching sfm-algorithm to incremental" % p.filename)
+                    args.sfm_algorithm = 'incremental'
+                    break

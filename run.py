@@ -6,35 +6,34 @@ if sys.version_info.major < 3:
     print("Ups! ODM needs to run with Python 3. It seems you launched it with Python 2. Try using: python3 run.py ... ")
     sys.exit(1)
 
+import os
 from opendm import log
 from opendm import config
 from opendm import system
 from opendm import io
 from opendm.progress import progressbc
-
-import os
-from pipes import quote
+from opendm.utils import get_processing_results_paths, rm_r
+from opendm.loghelpers import args_to_dict
 
 from stages.odm_app import ODMApp
+
+def odm_version():
+    try:
+        with open("VERSION") as f:
+            return f.read().split("\n")[0].strip()
+    except:
+        return "?"
 
 if __name__ == '__main__':
     args = config.config()
 
-    log.ODM_INFO('Initializing ODM - %s' % system.now())
+    log.ODM_INFO('Initializing ODM %s - %s' % (odm_version(), system.now()))
 
     # Print args
-    args_dict = vars(args)
+    args_dict = args_to_dict(args)
     log.ODM_INFO('==============')
-    for k in sorted(args_dict.keys()):
-        # Skip _is_set keys
-        if k.endswith("_is_set"):
-            continue
-
-        # Don't leak token
-        if k == 'sm_cluster' and args_dict[k] is not None:
-            log.ODM_INFO('%s: True' % k)
-        else:
-            log.ODM_INFO('%s: %s' % (k, args_dict[k]))
+    for k in args_dict.keys():
+        log.ODM_INFO('%s: %s' % (k, args_dict[k]))
     log.ODM_INFO('==============')
 
     progressbc.set_project_name(args.name)
@@ -48,28 +47,19 @@ if __name__ == '__main__':
     # If user asks to rerun everything, delete all of the existing progress directories.
     if args.rerun_all:
         log.ODM_INFO("Rerun all -- Removing old data")
-        os.system("rm -rf " + 
-                    " ".join([
-                        quote(os.path.join(args.project_path, "odm_georeferencing")),
-                        quote(os.path.join(args.project_path, "odm_georeferencing_25d")),
-                        quote(os.path.join(args.project_path, "odm_meshing")),
-                        quote(os.path.join(args.project_path, "odm_orthophoto")),
-                        quote(os.path.join(args.project_path, "odm_dem")),
-                        quote(os.path.join(args.project_path, "odm_report")),
-                        quote(os.path.join(args.project_path, "odm_texturing")),
-                        quote(os.path.join(args.project_path, "opensfm")),
-                        quote(os.path.join(args.project_path, "odm_filterpoints")),
-                        quote(os.path.join(args.project_path, "odm_texturing_25d")),
-                        quote(os.path.join(args.project_path, "openmvs")),
-                        quote(os.path.join(args.project_path, "entwine_pointcloud")),
-                        quote(os.path.join(args.project_path, "submodels")),
-                    ]))
+        for d in [os.path.join(args.project_path, p) for p in get_processing_results_paths()] + [
+                  os.path.join(args.project_path, "odm_meshing"),
+                  os.path.join(args.project_path, "opensfm"),
+                  os.path.join(args.project_path, "odm_texturing_25d"),
+                  os.path.join(args.project_path, "odm_filterpoints"),
+                  os.path.join(args.project_path, "submodels")]:
+            rm_r(d)
 
     app = ODMApp(args)
-    app.execute()
+    retcode = app.execute()
     
     # Do not show ASCII art for local submodels runs
-    if not "submodels/submodel_" in args.project_path:
+    if retcode == 0 and not "submodels" in args.project_path:
         log.ODM_INFO('MMMMMMMMMMMNNNMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMNNNMMMMMMMMMMM')
         log.ODM_INFO('MMMMMMdo:..---../sNMMMMMMMMMMMMMMMMMMMMMMMMMMNs/..---..:odMMMMMM')
         log.ODM_INFO('MMMMy-.odNMMMMMNy/`/mMMMMMMMMMMMMMMMMMMMMMMm/`/hNMMMMMNdo.-yMMMM')
@@ -111,4 +101,6 @@ if __name__ == '__main__':
         log.ODM_INFO('MMMMMMMMMMMN-  smNm/  +MMm  :NNdo` .mMM` oMM+/yMM/  MMMMMMMMMMMM')
         log.ODM_INFO('MMMMMMMMMMMMNo-    `:yMMMm      `:sNMMM` sMMMMMMM+  NMMMMMMMMMMM')
         log.ODM_INFO('MMMMMMMMMMMMMMMNmmNMMMMMMMNmmmmNMMMMMMMNNMMMMMMMMMNNMMMMMMMMMMMM')
-    log.ODM_INFO('ODM app finished - %s' % system.now())
+        log.ODM_INFO('ODM app finished - %s' % system.now())
+    else:
+        exit(retcode)
