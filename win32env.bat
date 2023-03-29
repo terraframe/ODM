@@ -10,8 +10,11 @@ if defined _OLD_CODEPAGE (
 
 set ODMBASE=%~dp0
 set GDALBASE=%ODMBASE%venv\Lib\site-packages\osgeo
+set GDAL_DATA=%GDALBASE%\data\gdal
+set GDAL_DRIVER_PATH=%GDALBASE%\gdalplugins
 set OSFMBASE=%ODMBASE%SuperBuild\install\bin\opensfm\bin
 set SBBIN=%ODMBASE%SuperBuild\install\bin
+set PDAL_DRIVER_PATH=%ODMBASE%SuperBuild\install\bin
 
 set PATH=%GDALBASE%;%SBBIN%;%OSFMBASE%
 set PROJ_LIB=%GDALBASE%\data\proj
@@ -26,7 +29,7 @@ echo include-system-site-packages = false>> "%PYENVCFG%"
 
 rem Hot-patching cv2 extension configs
 echo BINARIES_PATHS = [r"%SBBIN%"] + BINARIES_PATHS> venv\Lib\site-packages\cv2\config.py
-echo PYTHON_EXTENSIONS_PATHS = [r'%VIRTUAL_ENV%\lib\site-packages\cv2\python-3.8'] + PYTHON_EXTENSIONS_PATHS> venv\Lib\site-packages\cv2\config-3.8.py
+echo PYTHON_EXTENSIONS_PATHS = [r'''%VIRTUAL_ENV%\lib\site-packages\cv2\python-3.8'''] + PYTHON_EXTENSIONS_PATHS> venv\Lib\site-packages\cv2\config-3.8.py
 
 if not defined PROMPT set PROMPT=$P$G
 

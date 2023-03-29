@@ -448,7 +448,7 @@ class ReconstructionTask(Task):
         log.ODM_INFO("==================================")
         octx.feature_matching(self.params['rerun'])
         octx.create_tracks(self.params['rerun'])
-        octx.reconstruct(self.params['rolling_shutter'], self.params['rerun'])
+        octx.reconstruct(self.params['rolling_shutter'], True, self.params['rerun'])
     
     def process_remote(self, done):
         octx = OSFMContext(self.path("opensfm"))
@@ -504,8 +504,7 @@ class ToolchainTask(Task):
                                 seed_touch_files=["opensfm/features/empty",
                                                 "opensfm/matches/empty",
                                                 "opensfm/exif/empty"],
-                                outputs=["odm_orthophoto/odm_orthophoto.tif",
-                                        "odm_orthophoto/cutline.gpkg",
+                                outputs=["odm_orthophoto/cutline.gpkg",
                                         "odm_orthophoto/odm_orthophoto_cut.tif",
                                         "odm_orthophoto/odm_orthophoto_feathered.tif",
                                         "odm_dem",

@@ -44,9 +44,25 @@ def generate_png(orthophoto_file, output_file=None, outsize=None):
     
     # See if we need to select top three bands
     bandparam = ""
+
     gtif = gdal.Open(orthophoto_file)
     if gtif.RasterCount > 4:
-        bandparam = "-b 1 -b 2 -b 3 -a_nodata 0"
+        bands = []
+        for idx in range(1, gtif.RasterCount+1):
+            bands.append(gtif.GetRasterBand(idx).GetColorInterpretation())
+        bands = dict(zip(bands, range(1, len(bands)+1)))
+
+        try:
+            red = bands.get(gdal.GCI_RedBand)
+            green = bands.get(gdal.GCI_GreenBand)
+            blue = bands.get(gdal.GCI_BlueBand)
+            if red is None or green is None or blue is None:
+                raise Exception("Cannot find bands")
+
+            bandparam = "-b %s -b %s -b %s -a_nodata 0" % (red, green, blue)
+        except:
+            bandparam = "-b 1 -b 2 -b 3 -a_nodata 0"
+    gtif = None
 
     osparam = ""
     if outsize is not None:
@@ -66,7 +82,7 @@ def generate_kmz(orthophoto_file, output_file=None, outsize=None):
     if gtif.RasterCount > 4:
         bandparam = "-b 1 -b 2 -b 3 -a_nodata 0"
 
-    system.run('gdal_translate -of KMLSUPEROVERLAY -co FORMAT=JPEG "%s" "%s" %s '
+    system.run('gdal_translate -of KMLSUPEROVERLAY -co FORMAT=PNG "%s" "%s" %s '
                '--config GDAL_CACHEMAX %s%% ' % (orthophoto_file, output_file, bandparam, get_max_memory()))    
     
 def post_orthophoto_steps(args, bounds_file_path, orthophoto_file, orthophoto_tiles_dir):
@@ -129,7 +145,7 @@ def compute_mask_raster(input_raster, vector_mask, output_raster, blend_distance
                 else:
                     log.ODM_WARNING("%s does not have an alpha band, cannot blend cutline!" % input_raster)
 
-            with rasterio.open(output_raster, 'w', **rast.profile) as dst:
+            with rasterio.open(output_raster, 'w', BIGTIFF="IF_SAFER", **rast.profile) as dst:
                 dst.colorinterp = rast.colorinterp
                 dst.write(out_image)
 
@@ -154,7 +170,7 @@ def feather_raster(input_raster, output_raster, blend_distance=20):
             else:
                 log.ODM_WARNING("%s does not have an alpha band, cannot feather raster!" % input_raster)
 
-        with rasterio.open(output_raster, 'w', **rast.profile) as dst:
+        with rasterio.open(output_raster, 'w', BIGTIFF="IF_SAFER", **rast.profile) as dst:
             dst.colorinterp = rast.colorinterp
             dst.write(out_image)
 
@@ -200,8 +216,8 @@ def merge(input_ortho_and_ortho_cuts, output_orthophoto, orthophoto_vars={}):
         left, bottom, right, top = src.bounds
         xs.extend([left, right])
         ys.extend([bottom, top])
-        if src.profile["count"] < 4:
-            raise ValueError("Inputs must be at least 4-band rasters")
+        if src.profile["count"] < 2:
+            raise ValueError("Inputs must be at least 2-band rasters")
     dst_w, dst_s, dst_e, dst_n = min(xs), min(ys), max(xs), max(ys)
     log.ODM_INFO("Output bounds: %r %r %r %r" % (dst_w, dst_s, dst_e, dst_n))
 

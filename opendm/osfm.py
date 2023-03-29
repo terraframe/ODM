@@ -49,11 +49,12 @@ class OSFMContext:
         else:
             log.ODM_WARNING('Found a valid OpenSfM tracks file in: %s' % tracks_file)
 
-    def reconstruct(self, rolling_shutter_correct=False, rerun=False):
+    def reconstruct(self, rolling_shutter_correct=False, merge_partial=False, rerun=False):
         reconstruction_file = os.path.join(self.opensfm_project_path, 'reconstruction.json')
         if not io.file_exists(reconstruction_file) or rerun:
             self.run('reconstruct')
-            self.check_merge_partial_reconstructions()
+            if merge_partial:
+                self.check_merge_partial_reconstructions()
         else:
             log.ODM_WARNING('Found a valid OpenSfM reconstruction file in: %s' % reconstruction_file)
 
@@ -76,7 +77,7 @@ class OSFMContext:
 
                 self.match_features(True)
                 self.create_tracks(True)
-                self.reconstruct(rolling_shutter_correct=False, rerun=True)
+                self.reconstruct(rolling_shutter_correct=False, merge_partial=merge_partial, rerun=True)
 
                 self.touch(rs_file)
             else:
@@ -148,17 +149,25 @@ class OSFMContext:
                 photos = reconstruction.photos
 
             # create file list
+            num_zero_alt = 0
             has_alt = True
             has_gps = False
             with open(list_path, 'w') as fout:
                 for photo in photos:
-                    if not photo.altitude:
+                    if photo.altitude is None:
                         has_alt = False
+                    elif photo.altitude == 0:
+                        num_zero_alt += 1
                     if photo.latitude is not None and photo.longitude is not None:
                         has_gps = True
 
                     fout.write('%s\n' % os.path.join(images_path, photo.filename))
             
+            # check 0 altitude images percentage when has_alt is True
+            if has_alt and num_zero_alt / len(photos) > 0.05:
+                log.ODM_WARNING("More than 5% of images have zero altitude, this might be an indicator that the images have no altitude information")
+                has_alt = False
+
             # check for image_groups.txt (split-merge)
             image_groups_file = os.path.join(args.project_path, "image_groups.txt")
             if 'split_image_groups_is_set' in args:
@@ -194,27 +203,22 @@ class OSFMContext:
             # Compute feature_process_size
             feature_process_size = 2048 # default
 
-            if ('resize_to_is_set' in args) and args.resize_to > 0:
-                # Legacy
-                log.ODM_WARNING("Legacy option --resize-to (this might be removed in a future version). Use --feature-quality instead.")
-                feature_process_size = int(args.resize_to)
+            feature_quality_scale = {
+                'ultra': 1,
+                'high': 0.5,
+                'medium': 0.25,
+                'low': 0.125,
+                'lowest': 0.0675,
+            }
+
+            max_dim = find_largest_photo_dim(photos)
+
+            if max_dim > 0:
+                log.ODM_INFO("Maximum photo dimensions: %spx" % str(max_dim))
+                feature_process_size = int(max_dim * feature_quality_scale[args.feature_quality])
+                log.ODM_INFO("Photo dimensions for feature extraction: %ipx" % feature_process_size)
             else:
-                feature_quality_scale = {
-                    'ultra': 1,
-                    'high': 0.5,
-                    'medium': 0.25,
-                    'low': 0.125,
-                    'lowest': 0.0675,
-                }
-
-                max_dim = find_largest_photo_dim(photos)
-
-                if max_dim > 0:
-                    log.ODM_INFO("Maximum photo dimensions: %spx" % str(max_dim))
-                    feature_process_size = int(max_dim * feature_quality_scale[args.feature_quality])
-                    log.ODM_INFO("Photo dimensions for feature extraction: %ipx" % feature_process_size)
-                else:
-                    log.ODM_WARNING("Cannot compute max image dimensions, going with defaults")
+                log.ODM_WARNING("Cannot compute max image dimensions, going with defaults")
 
             # create config file for OpenSfM
             if args.matcher_neighbors > 0:
@@ -404,6 +408,8 @@ class OSFMContext:
                 if hasattr(self, 'gpu_sift_feature_extraction'):
                     log.ODM_WARNING("GPU SIFT extraction failed, maybe the graphics card is not supported? Attempting fallback to CPU")
                     self.update_config({'feature_type': "SIFT"})
+                    if os.path.exists(features_dir):
+                        shutil.rmtree(features_dir)
                     self.run('detect_features')
                 else:
                     raise e

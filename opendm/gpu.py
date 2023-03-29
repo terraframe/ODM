@@ -16,18 +16,15 @@ def has_popsift_and_can_handle_texsize(width, height):
         compute_major, compute_minor = get_cuda_compute_version(0)
         if compute_major < 3 or (compute_major == 3 and compute_minor < 5):
             # Not supported
-            log.ODM_WARNING("CUDA compute platform is not supported (detected: %s.%s but we need at least 3.5)" % (compute_major, compute_minor))
+            log.ODM_INFO("CUDA compute platform is not supported (detected: %s.%s but we need at least 3.5)" % (compute_major, compute_minor))
             return False
     except Exception as e:
-        log.ODM_WARNING("Cannot use GPU for feature extraction: %s" % str(e))
+        log.ODM_INFO("Using CPU for feature extraction: %s" % str(e))
         return False
 
     try:
         from opensfm import pypopsift
-        fits = pypopsift.fits_texture(int(width * 1.02), int(height * 1.02))
-        if not fits:
-            log.ODM_WARNING("Image size (%sx%spx) would not fit in GPU memory, falling back to CPU" % (width, height))
-        return fits
+        return pypopsift.fits_texture(int(width * 1.02), int(height * 1.02))
     except (ModuleNotFoundError, ImportError):
         return False
     except Exception as e:
@@ -38,7 +35,9 @@ def has_popsift_and_can_handle_texsize(width, height):
 def get_cuda_compute_version(device_id = 0):
     cuda_lib = "libcuda.so"
     if sys.platform == 'win32':
-        cuda_lib = "nvcuda.dll"
+        cuda_lib = os.path.join(os.environ.get('SYSTEMROOT'), 'system32', 'nvcuda.dll')
+        if not os.path.isfile(cuda_lib):
+            cuda_lib = "nvcuda.dll"
 
     nvcuda = ctypes.cdll.LoadLibrary(cuda_lib)
 
@@ -89,5 +88,4 @@ def has_gpu(args):
             log.ODM_INFO("nvidia-smi detected")
             return True
         else:
-            log.ODM_INFO("nvidia-smi not found in PATH, using CPU")
             return False

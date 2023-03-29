@@ -35,7 +35,7 @@ class ODMOpenSfMStage(types.ODM_Stage):
         octx.feature_matching(self.rerun())
         self.update_progress(30)
         octx.create_tracks(self.rerun())
-        octx.reconstruct(args.rolling_shutter, self.rerun())
+        octx.reconstruct(args.rolling_shutter, reconstruction.is_georeferenced(), self.rerun())
         octx.extract_cameras(tree.path("cameras.json"), self.rerun())
         self.update_progress(70)
 
@@ -138,7 +138,7 @@ class ODMOpenSfMStage(types.ODM_Stage):
                 return image
 
         if reconstruction.multi_camera:
-            largest_photo = find_largest_photo(photos)
+            largest_photo = find_largest_photo([p for p in photos])
             undistort_pipeline.append(resize_thermal_images)
 
         if args.radiometric_calibration != "none":
@@ -149,7 +149,8 @@ class ODMOpenSfMStage(types.ODM_Stage):
         if reconstruction.multi_camera:
             
             # Undistort only secondary bands
-            image_list_override = [os.path.join(tree.dataset_raw, p.filename) for p in photos] # if p.band_name.lower() != primary_band_name.lower()
+            primary_band_name = multispectral.get_primary_band_name(reconstruction.multi_camera, args.primary_band)
+            image_list_override = [os.path.join(tree.dataset_raw, p.filename) for p in photos if p.band_name.lower() != primary_band_name.lower()]
 
             # We backup the original reconstruction.json, tracks.csv
             # then we augment them by duplicating the primary band
@@ -161,7 +162,6 @@ class ODMOpenSfMStage(types.ODM_Stage):
             s2p, p2s = None, None
 
             if not io.file_exists(added_shots_file) or self.rerun():
-                primary_band_name = multispectral.get_primary_band_name(reconstruction.multi_camera, args.primary_band)
                 s2p, p2s = multispectral.compute_band_maps(reconstruction.multi_camera, primary_band_name)
                 
                 if not args.skip_band_alignment:

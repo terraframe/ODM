@@ -1,7 +1,7 @@
 set(_proj_name obj2tiles)
 set(_SB_BINARY_DIR "${SB_BINARY_DIR}/${_proj_name}")
 
-set(OBJ2TILES_VERSION v1.0.7)
+set(OBJ2TILES_VERSION v1.0.11)
 set(OBJ2TILES_EXT "")
 
 set(OBJ2TILES_ARCH "Linux64")
@@ -10,6 +10,8 @@ if (WIN32)
     set(OBJ2TILES_EXT ".exe")
 elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
     set(OBJ2TILES_ARCH "LinuxArm")
+elseif(APPLE)
+    set(OBJ2TILES_ARCH "Osx64")
 endif()
 
 

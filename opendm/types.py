@@ -26,6 +26,7 @@ class ODM_Reconstruction(object):
         self.georef = None
         self.gcp = None
         self.multi_camera = self.detect_multi_camera()
+        self.filter_photos()
 
     def detect_multi_camera(self):
         """
@@ -64,11 +65,51 @@ class ODM_Reconstruction(object):
 
         return None
 
+    def filter_photos(self):
+        if not self.multi_camera:
+            return # Nothing to do, use all images
+        
+        else:
+            # Sometimes people might try process both RGB + Blue/Red/Green bands
+            # because these are the contents of the SD card from a drone (e.g. DJI P4 Multispectral)
+            # But we don't want to process both, so we discard the RGB files in favor
+            bands = {}
+            for b in self.multi_camera:
+                bands[b['name'].lower()] = b['name']
+            
+            bands_to_remove = []
+
+            if 'rgb' in bands or 'redgreenblue' in bands:
+                if 'red' in bands and 'green' in bands and 'blue' in bands:
+                    bands_to_remove.append(bands['rgb'] if 'rgb' in bands else bands['redgreenblue'])
+                else:
+                    for b in ['red', 'green', 'blue']:
+                        if b in bands:
+                            bands_to_remove.append(bands[b])
+
+            if len(bands_to_remove) > 0:
+                log.ODM_WARNING("Redundant bands detected, probably because RGB images are mixed with single band images. We will trim some bands as needed")
+
+                for band_to_remove in bands_to_remove:
+                    self.multi_camera = [b for b in self.multi_camera if b['name'] != band_to_remove]
+                    photos_before = len(self.photos)
+                    self.photos = [p for p in self.photos if p.band_name != band_to_remove]
+                    photos_after = len(self.photos)
+
+                    log.ODM_WARNING("Skipping %s band (%s images)" % (band_to_remove, photos_before - photos_after))
+
     def is_georeferenced(self):
         return self.georef is not None
 
     def has_gcp(self):
         return self.is_georeferenced() and self.gcp is not None and self.gcp.exists()
+    
+    def has_geotagged_photos(self):
+        for photo in self.photos:
+            if photo.latitude is None and photo.longitude is None:
+                return False
+
+        return True 
 
     def georeference_with_gcp(self, gcp_file, output_coords_file, output_gcp_file, output_model_txt_geo, rerun=False):
         if not io.file_exists(output_coords_file) or not io.file_exists(output_gcp_file) or rerun:
@@ -76,11 +117,13 @@ class ODM_Reconstruction(object):
             if gcp.exists():
                 if gcp.entries_count() == 0:
                     raise RuntimeError("This GCP file does not have any entries. Are the entries entered in the proper format?")
+                
+                gcp.check_entries()
 
                 # Convert GCP file to a UTM projection since the rest of the pipeline
                 # does not handle other SRS well.
                 rejected_entries = []
-                utm_gcp = GCPFile(gcp.create_utm_copy(output_gcp_file, filenames=[p.filename for p in self.photos], rejected_entries=rejected_entries, include_extras=False))
+                utm_gcp = GCPFile(gcp.create_utm_copy(output_gcp_file, filenames=[p.filename for p in self.photos], rejected_entries=rejected_entries, include_extras=True))
                 
                 if not utm_gcp.exists():
                     raise RuntimeError("Could not project GCP file to UTM. Please double check your GCP file for mistakes.")
@@ -208,7 +251,7 @@ class ODM_GeoRef(object):
         return (self.utm_east_offset, self.utm_north_offset)
     
 class ODM_Tree(object):
-    def __init__(self, root_path, gcp_file = None, geo_file = None):
+    def __init__(self, root_path, gcp_file = None, geo_file = None, align_file = None):
         # root path to the project
         self.root_path = io.absolute_path_file(root_path)
         self.input_images = os.path.join(self.root_path, 'images')
@@ -247,6 +290,7 @@ class ODM_Tree(object):
 
         # filter points
         self.filtered_point_cloud = os.path.join(self.odm_filterpoints, "point_cloud.ply")
+        self.filtered_point_cloud_stats = os.path.join(self.odm_filterpoints, "point_cloud_stats.json")
 
         # odm_meshing
         self.odm_mesh = os.path.join(self.odm_meshing, 'odm_mesh.ply')
@@ -256,6 +300,7 @@ class ODM_Tree(object):
 
         # texturing
         self.odm_textured_model_obj = 'odm_textured_model_geo.obj'
+        self.odm_textured_model_glb = 'odm_textured_model_geo.glb'
 
         # odm_georeferencing
         self.odm_georeferencing_coords = os.path.join(
@@ -263,6 +308,7 @@ class ODM_Tree(object):
         self.odm_georeferencing_gcp = gcp_file or io.find('gcp_list.txt', self.root_path)
         self.odm_georeferencing_gcp_utm = os.path.join(self.odm_georeferencing, 'gcp_list_utm.txt')
         self.odm_geo_file = geo_file or io.find('geo.txt', self.root_path)
+        self.odm_align_file = align_file or io.find('align.laz', self.root_path) or io.find('align.las', self.root_path) or io.find('align.tif', self.root_path)
         
         self.odm_georeferencing_proj = 'proj.txt'
         self.odm_georeferencing_model_txt_geo = os.path.join(
@@ -273,6 +319,9 @@ class ODM_Tree(object):
             self.odm_georeferencing, 'odm_georeferenced_model.laz')
         self.odm_georeferencing_model_las = os.path.join(
             self.odm_georeferencing, 'odm_georeferenced_model.las')
+        self.odm_georeferencing_alignment_matrix = os.path.join(
+            self.odm_georeferencing, 'alignment_matrix.json'
+        )
 
         # odm_orthophoto
         self.odm_orthophoto_render = os.path.join(self.odm_orthophoto, 'odm_orthophoto_render.tif')
@@ -331,8 +380,10 @@ class ODM_Stage:
         #if outputs.get('tree') is None:
          #   raise Exception("Assert violation: tree variable is missing from outputs dictionary.")
 
-        if self.args.time and outputs.get('tree') is not None:
+        try:
             system.benchmark(start_time, outputs['tree'].benchmarking, self.name)
+        except Exception as e:
+            log.ODM_WARNING("Cannot write benchmark file: %s" % str(e))
 
         log.ODM_INFO('Finished %s stage' % self.name)
         self.update_progress_end()

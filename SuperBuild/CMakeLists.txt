@@ -2,13 +2,51 @@ cmake_minimum_required(VERSION 3.1)
 
 project(ODM-SuperBuild)
 
+# Setup SuperBuild root location
+set(SB_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+
 if (NOT CMAKE_BUILD_TYPE)
     message(STATUS "No build type selected, default to Release")
     set(CMAKE_BUILD_TYPE "Release")
 endif()
 
-# Setup SuperBuild root location
-set(SB_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+if (APPLE)
+    find_program(HOMEBREW_EXECUTABLE brew)
+    mark_as_advanced(FORCE HOMEBREW_EXECUTABLE)
+    if (HOMEBREW_EXECUTABLE)
+        # Detected a Homebrew install, query for its install prefix.
+        execute_process(COMMAND ${HOMEBREW_EXECUTABLE} --prefix
+            OUTPUT_VARIABLE HOMEBREW_INSTALL_PREFIX
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+        message(STATUS "Detected Homebrew with install prefix: "
+            "${HOMEBREW_INSTALL_PREFIX}, adding to CMake search paths.")
+        list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_INSTALL_PREFIX}")
+    endif()
+
+    # Use homebrew's clang compiler since Apple
+    # does not allow us to link to libomp
+    set(CXX_PATH ${HOMEBREW_INSTALL_PREFIX}/bin/c++-12)
+    set(APPLE_CMAKE_ARGS "")
+    
+    message("Checking for ${CXX_PATH}...")
+    if(EXISTS "${CXX_PATH}")
+        message("Found Homebrew's C++ compiler: ${CXX_PATH}")
+        set(CMAKE_CXX_COMPILER ${CXX_PATH})
+        list(APPEND APPLE_CMAKE_ARGS "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+    endif()
+
+    set(C_PATH ${HOMEBREW_INSTALL_PREFIX}/bin/gcc-12)
+    message("Checking for ${C_PATH}...")
+    if(EXISTS "${C_PATH}")
+        message("Found Homebrew's C compiler: ${C_PATH}")
+        set(CMAKE_C_COMPILER ${C_PATH})
+        list(APPEND APPLE_CMAKE_ARGS "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
+    endif()
+
+    if (NOT APPLE_CMAKE_ARGS)
+        message(WARNING "Cannot find Homebrew's compiler, compilation might fail...")
+    endif()
+endif()
 
 ################################
 # Setup SuperBuild directories #
@@ -75,6 +113,9 @@ if (WIN32)
   file(COPY ${CUDA_DLLS} DESTINATION "${SB_INSTALL_DIR}/bin")
 
   set(WIN32_GDAL_ARGS -DGDAL_FOUND=TRUE -DGDAL_LIBRARY=${GDAL_LIBRARY} -DGDAL_INCLUDE_DIR=${GDAL_INCLUDE_DIR})
+elseif(APPLE)
+    set(PYTHON_HOME "${SB_ROOT_DIR}/../venv")
+    set(PYTHON_EXE_PATH "${PYTHON_HOME}/bin/python")
 else()
   set(PYTHON_EXE_PATH "/usr/bin/python3")
 endif()
@@ -96,15 +137,6 @@ set(ODM_OpenCV_Version 2.4.11)
 option(ODM_BUILD_OpenCV "Force to build OpenCV library" OFF)
 
 SETUP_EXTERNAL_PROJECT(OpenCV ${ODM_OpenCV_Version} ${ODM_BUILD_OpenCV})
-
-
-# ---------------------------------------------------------------------------------------------
-# Point Cloud Library (PCL)
-#
-set(ODM_PCL_Version 1.8.0)
-option(ODM_BUILD_PCL "Force to build PCL library" OFF)
-
-SETUP_EXTERNAL_PROJECT(PCL ${ODM_PCL_Version} ${ODM_BUILD_PCL})
 
 
 # ---------------------------------------------------------------------------------------------
@@ -137,6 +169,7 @@ SETUP_EXTERNAL_PROJECT(Hexer 1.4 ON)
 set(custom_libs OpenSfM
 				LASzip
 				PDAL
+				PDALPython
 				Untwine
 				Entwine
 				MvsTexturing
@@ -144,14 +177,15 @@ set(custom_libs OpenSfM
 				FPCFilter
 				PyPopsift
 				Obj2Tiles
+				OpenPointClass
 )
 
 externalproject_add(mve
     GIT_REPOSITORY  https://github.com/OpenDroneMap/mve.git
-    GIT_TAG         262
+    GIT_TAG         290
     UPDATE_COMMAND  ""
     SOURCE_DIR      ${SB_SOURCE_DIR}/mve
-    CMAKE_ARGS      ${WIN32_CMAKE_ARGS}
+    CMAKE_ARGS      ${WIN32_CMAKE_ARGS} ${APPLE_CMAKE_ARGS}
     BUILD_IN_SOURCE 1
     INSTALL_COMMAND ""
 )
@@ -169,10 +203,13 @@ if (WIN32)
 else()
     set (POISSON_BUILD_CMD  make -j${nproc} poissonrecon)
     set (POISSON_BIN_PATH "Linux/PoissonRecon")
+    if (APPLE)
+        set(POISSON_BUILD_CMD COMPILER=${CMAKE_CXX_COMPILER} make -j${nproc} -f Makefile.macos poissonrecon)
+    endif()
 endif()
 externalproject_add(poissonrecon
     GIT_REPOSITORY    https://github.com/OpenDroneMap/PoissonRecon.git
-    GIT_TAG           272
+    GIT_TAG           290
     PREFIX            ${SB_BINARY_DIR}/PoissonRecon
     SOURCE_DIR        ${SB_SOURCE_DIR}/PoissonRecon
     UPDATE_COMMAND    ""
@@ -184,11 +221,12 @@ externalproject_add(poissonrecon
 
 externalproject_add(dem2mesh
     GIT_REPOSITORY    https://github.com/OpenDroneMap/dem2mesh.git
-    GIT_TAG           master
+    GIT_TAG           300
     PREFIX            ${SB_BINARY_DIR}/dem2mesh
     SOURCE_DIR        ${SB_SOURCE_DIR}/dem2mesh
     CMAKE_ARGS        -DCMAKE_INSTALL_PREFIX:PATH=${SB_INSTALL_DIR}
                       ${WIN32_GDAL_ARGS}
+                      ${APPLE_CMAKE_ARGS}
 )
 
 externalproject_add(dem2points
@@ -198,12 +236,13 @@ externalproject_add(dem2points
     SOURCE_DIR        ${SB_SOURCE_DIR}/dem2points
     CMAKE_ARGS        -DCMAKE_INSTALL_PREFIX:PATH=${SB_INSTALL_DIR}
                       ${WIN32_GDAL_ARGS}
+                      ${APPLE_CMAKE_ARGS}
 )
 
 externalproject_add(odm_orthophoto
-    DEPENDS           pcl opencv 
+    DEPENDS           opencv 
     GIT_REPOSITORY    https://github.com/OpenDroneMap/odm_orthophoto.git
-    GIT_TAG           main
+    GIT_TAG           290
     PREFIX            ${SB_BINARY_DIR}/odm_orthophoto
     SOURCE_DIR        ${SB_SOURCE_DIR}/odm_orthophoto
     CMAKE_ARGS        -DCMAKE_INSTALL_PREFIX:PATH=${SB_INSTALL_DIR}
@@ -216,4 +255,15 @@ externalproject_add(lastools
     PREFIX            ${SB_BINARY_DIR}/lastools
     SOURCE_DIR        ${SB_SOURCE_DIR}/lastools
     CMAKE_ARGS        -DCMAKE_INSTALL_PREFIX:PATH=${SB_INSTALL_DIR}
+)
+
+externalproject_add(draco
+    GIT_REPOSITORY    https://github.com/OpenDroneMap/draco
+    GIT_SHALLOW       ON
+    GIT_TAG           304
+    PREFIX            ${SB_BINARY_DIR}/draco
+    SOURCE_DIR        ${SB_SOURCE_DIR}/draco
+    CMAKE_ARGS        -DDRACO_TRANSCODER_SUPPORTED=ON 
+                      -DCMAKE_INSTALL_PREFIX:PATH=${SB_INSTALL_DIR} 
+                      ${WIN32_CMAKE_ARGS}
 )
