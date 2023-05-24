@@ -44,6 +44,9 @@ def generate_png(orthophoto_file, output_file=None, outsize=None):
     
     # See if we need to select top three bands
     bandparam = ""
+    
+    # Multispectral may require rescaling
+    scale_params = ""
 
     gtif = gdal.Open(orthophoto_file)
     if gtif.RasterCount > 4:
@@ -60,6 +63,17 @@ def generate_png(orthophoto_file, output_file=None, outsize=None):
                 raise Exception("Cannot find bands")
 
             bandparam = "-b %s -b %s -b %s -a_nodata 0" % (red, green, blue)
+            
+            try:
+                r_min, r_max = gtif.GetRasterBand(red).ComputeRasterMinMax()
+                g_min, g_max = gtif.GetRasterBand(green).ComputeRasterMinMax()
+                b_min, b_max = gtif.GetRasterBand(blue).ComputeRasterMinMax()
+            
+                scale_params = "-scale_1 %s %s" % (r_min, r_max)
+                scale_params += " -scale_2 %s %s" % (g_min, g_max)
+                scale_params += " -scale_3 %s %s" % (b_min, b_max)
+            except:
+                scale_params = ""
         except:
             bandparam = "-b 1 -b 2 -b 3 -a_nodata 0"
     gtif = None
@@ -68,8 +82,8 @@ def generate_png(orthophoto_file, output_file=None, outsize=None):
     if outsize is not None:
         osparam = "-outsize %s 0" % outsize
 
-    system.run('gdal_translate -of png "%s" "%s" %s %s '
-               '--config GDAL_CACHEMAX %s%% ' % (orthophoto_file, output_file, osparam, bandparam, get_max_memory()))
+    system.run('gdal_translate -of png %s "%s" "%s" %s %s '
+               '--config GDAL_CACHEMAX %s%% ' % (scale_params, orthophoto_file, output_file, osparam, bandparam, get_max_memory()))
 
 def generate_kmz(orthophoto_file, output_file=None, outsize=None):
     if output_file is None:
